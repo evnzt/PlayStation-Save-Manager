@@ -73,6 +73,9 @@ public partial class MainWindow : Window
     private bool _wizardSourceIsCard;
     private bool _wizardSourceIsPs1Card;
     private bool _wizardSourceIsReadablePackage;
+    private bool _wizardSourceIsFolderSave;
+    private string? _wizardFolderCardPath;
+    private string? _wizardFolderSaveId;
 
 
     private static readonly UniversalFormatOption[] UniversalFormats =
@@ -2395,7 +2398,7 @@ public partial class MainWindow : Window
         var choice =
             ShowFileOrFolderSourceDialog(
                 "CHOOSE UNIVERSAL CONVERTER SOURCE",
-                "Choose a supported file or a PCSX2 folder memory card.",
+                "Choose a supported file, PCSX2 folder card, or directory-ID save folder.",
                 "Universal Converter Source");
 
         if (choice == 0)
@@ -2406,7 +2409,7 @@ public partial class MainWindow : Window
             var folderDialog =
                 new Microsoft.Win32.OpenFolderDialog
                 {
-                    Title = "Choose PCSX2 Folder Memory Card",
+                    Title = "Choose PCSX2 Folder Card or Save Directory",
                     Multiselect = false
                 };
 
@@ -6090,77 +6093,154 @@ await LoadSaveLibraryIconAsync(result.Entry);
         e.Handled = true;
     }
 
+    private static bool TryGetPcsx2FolderSave(
+        string path,
+        out string cardPath,
+        out string saveId)
+    {
+        cardPath = string.Empty;
+        saveId = string.Empty;
+
+        if (!Directory.Exists(path))
+            return false;
+
+        var parent = Directory.GetParent(path)?.FullName;
+        if (string.IsNullOrWhiteSpace(parent) ||
+            !File.Exists(Path.Combine(parent, "_pcsx2_superblock")) ||
+            !File.Exists(Path.Combine(path, "_pcsx2_index")))
+        {
+            return false;
+        }
+
+        cardPath = parent;
+        saveId = Path.GetFileName(path);
+        return !string.IsNullOrWhiteSpace(saveId);
+    }
+
+    private async Task<string> ExportWizardFolderSaveAsync()
+    {
+        if (!_wizardSourceIsFolderSave ||
+            string.IsNullOrWhiteSpace(_wizardFolderCardPath) ||
+            string.IsNullOrWhiteSpace(_wizardFolderSaveId))
+        {
+            throw new InvalidOperationException(
+                "No PCSX2 folder-card save is selected.");
+        }
+
+        var temporaryRoot = Path.Combine(
+            Path.GetTempPath(),
+            "PSM-WIZARD-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryRoot);
+
+        var destination = Path.Combine(
+            temporaryRoot,
+            SanitizeUniversalFileName(_wizardFolderSaveId) + ".psu");
+
+        await _engine.ExportPsuAsync(
+            _wizardFolderCardPath,
+            _wizardFolderSaveId,
+            destination);
+
+        return destination;
+    }
+
     private void SelectImportWizardSource(string path)
     {
+        var folderSave = TryGetPcsx2FolderSave(
+            path,
+            out var folderCardPath,
+            out var folderSaveId);
         var folderCard =
+            !folderSave &&
             Directory.Exists(path) &&
-            File.Exists(
-                Path.Combine(
-                    path,
-                    "_pcsx2_superblock"));
+            File.Exists(Path.Combine(path, "_pcsx2_superblock"));
 
-        if (!File.Exists(path) && !folderCard)
+        if (!File.Exists(path) && !folderCard && !folderSave)
             return;
 
         var extension =
-            folderCard
-                ? ".foldercard"
-                : Path.GetExtension(path).ToLowerInvariant();
+            folderSave
+                ? ".foldersave"
+                : folderCard
+                    ? ".foldercard"
+                    : Path.GetExtension(path).ToLowerInvariant();
         var format =
-            folderCard
+            folderSave
                 ? new UniversalFormatOption(
-                    ".foldercard",
-                    "PCSX2 Folder Memory Card",
-                    true,
+                    ".psu",
+                    "PCSX2 Folder Save",
+                    false,
                     true)
-                : UniversalFormats.FirstOrDefault(
-                    candidate =>
-                        candidate.Extension == extension);
+                : folderCard
+                    ? new UniversalFormatOption(
+                        ".foldercard",
+                        "PCSX2 Folder Memory Card",
+                        true,
+                        true)
+                    : UniversalFormats.FirstOrDefault(
+                        candidate => candidate.Extension == extension);
 
         _wizardSourcePath = path;
-        _wizardSourceIsPs1Card = extension is ".mcr" or ".srm" or ".bin" or ".mcd" or ".mc";
+        _wizardSourceIsFolderSave = folderSave;
+        _wizardFolderCardPath = folderSave ? folderCardPath : null;
+        _wizardFolderSaveId = folderSave ? folderSaveId : null;
+        _wizardSourceIsPs1Card =
+            !folderSave &&
+            extension is ".mcr" or ".srm" or ".bin" or ".mcd" or ".mc";
         _wizardSourceIsCard =
             folderCard ||
             _wizardSourceIsPs1Card ||
             extension is ".mc2" or ".ps2";
         _wizardSourceIsReadablePackage =
-            !_wizardSourceIsCard &&
-            extension is ".psu" or ".max" or ".cbs" or ".xps" or ".sps" or ".psv";
+            folderSave ||
+            (!_wizardSourceIsCard &&
+             extension is ".psu" or ".max" or ".cbs" or ".xps" or ".sps" or ".psv");
 
         WizardFilePanel.Visibility = Visibility.Visible;
-        WizardFileName.Text =
-            folderCard
-                ? Path.GetFileName(path)
-                : Path.GetFileName(path);
+        WizardFileName.Text = Path.GetFileName(path);
         WizardFilePath.Text = path;
         WizardFileDetails.Text =
-            folderCard
-                ? "PCSX2 Folder Memory Card  •  Folder"
-                : format is null
-                    ? $"Unknown format  •  {FormatBytes(new FileInfo(path).Length)}"
-                    : $"{format.DisplayName}  •  {FormatBytes(new FileInfo(path).Length)}";
+            folderSave
+                ? $"PCSX2 Folder Save  •  {folderSaveId}"
+                : folderCard
+                    ? "PCSX2 Folder Memory Card  •  Folder"
+                    : format is null
+                        ? $"Unknown format  •  {FormatBytes(new FileInfo(path).Length)}"
+                        : $"{format.DisplayName}  •  {FormatBytes(new FileInfo(path).Length)}";
 
-        WizardDropTitle.Text = "File detected";
+        WizardDropTitle.Text = folderSave ? "Folder save detected" : "File detected";
         WizardDropSubtitle.Text = "Choose an action from the panel on the right.";
 
         if (format is null)
         {
             WizardDetectedType.Text = $"Unsupported file: {extension.ToUpperInvariant()}";
             WizardExplanation.Text =
-                "This file is not one of the supported PS2 save or memory-card formats.";
+                "This file is not one of the supported save or memory-card formats.";
             SetWizardActions(false, false, false, false);
             return;
         }
 
-        if (_wizardSourceIsCard)
+        if (folderSave)
+        {
+            WizardDetectedType.Text =
+                $"PCSX2 folder-card save detected: {folderSaveId}";
+            WizardCardAButton.Content = "Import into Card A";
+            WizardCardBButton.Content = "Import into Card B";
+            WizardExplanation.Text =
+                "PSM can repackage this PCSX2 directory-ID folder as a standard PSU save, " +
+                "import it into either loaded PS2 card, send it to Universal Converter, " +
+                "or add it directly to the Save Library.";
+            SetWizardActions(_pathA is not null, _pathB is not null, true, true);
+        }
+        else if (_wizardSourceIsCard)
         {
             WizardDetectedType.Text = $"Complete memory card detected: {format.DisplayName}";
             WizardCardAButton.Content = "Open as Card A";
             WizardCardBButton.Content = "Open as Card B";
             WizardExplanation.Text =
-                "This is a complete memory-card image. You can open it directly in either card slot " +
-                "or send it to Universal Converter for MC2 ↔ PS2 conversion.";
-            SetWizardActions(true, true, true, false);
+                "This is a complete memory card. You can open it directly, convert it, " +
+                "or preserve it in the Memory Card Library.";
+            SetWizardActions(true, true, true, true);
         }
         else if (_wizardSourceIsReadablePackage)
         {
@@ -6168,8 +6248,8 @@ await LoadSaveLibraryIconAsync(result.Entry);
             WizardCardAButton.Content = "Import into Card A";
             WizardCardBButton.Content = "Import into Card B";
             WizardExplanation.Text =
-                "This is a packaged PS2 save. It can be safely imported into either loaded card, " +
-                "converted to another verified format, or opened in Save Library.";
+                "This packaged save can be safely imported into either loaded card, " +
+                "converted to another verified format, or added to the Save Library.";
             SetWizardActions(_pathA is not null, _pathB is not null, true, true);
         }
         else
@@ -6203,6 +6283,9 @@ await LoadSaveLibraryIconAsync(result.Entry);
         _wizardSourceIsCard = false;
         _wizardSourceIsPs1Card = false;
         _wizardSourceIsReadablePackage = false;
+        _wizardSourceIsFolderSave = false;
+        _wizardFolderCardPath = null;
+        _wizardFolderSaveId = null;
         WizardFilePanel.Visibility = Visibility.Collapsed;
         WizardFileName.Text = string.Empty;
         WizardFileDetails.Text = string.Empty;
@@ -6220,6 +6303,24 @@ await LoadSaveLibraryIconAsync(result.Entry);
     private async void WizardCardA_Click(object sender, RoutedEventArgs e)
     {
         if (_wizardSourcePath is null) return;
+
+        if (_wizardSourceIsFolderSave)
+        {
+            if (_pathA is null)
+            {
+                MessageBox.Show(
+                    "Open a destination in Card A first.",
+                    "Universal Import Wizard",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var temporaryPsu = await ExportWizardFolderSaveAsync();
+            SelectPackage(temporaryPsu);
+            await ImportPackageAsync(_pathA, 'A');
+            return;
+        }
 
         if (_wizardSourceIsCard)
         {
@@ -6255,6 +6356,24 @@ await LoadSaveLibraryIconAsync(result.Entry);
     {
         if (_wizardSourcePath is null) return;
 
+        if (_wizardSourceIsFolderSave)
+        {
+            if (_pathB is null)
+            {
+                MessageBox.Show(
+                    "Open a destination in Card B first.",
+                    "Universal Import Wizard",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            var temporaryPsu = await ExportWizardFolderSaveAsync();
+            SelectPackage(temporaryPsu);
+            await ImportPackageAsync(_pathB, 'B');
+            return;
+        }
+
         if (_wizardSourceIsCard)
         {
             if (_wizardSourceIsPs1Card)
@@ -6285,23 +6404,94 @@ await LoadSaveLibraryIconAsync(result.Entry);
         await ImportPackageAsync(_pathB, 'B');
     }
 
-    private void WizardConvert_Click(object sender, RoutedEventArgs e)
+    private async void WizardConvert_Click(object sender, RoutedEventArgs e)
     {
         if (_wizardSourcePath is null) return;
-        SelectUniversalSource(_wizardSourcePath);
+
+        var source = _wizardSourceIsFolderSave
+            ? await ExportWizardFolderSaveAsync()
+            : _wizardSourcePath;
+
+        SelectUniversalSource(source);
         MainTabs.SelectedItem = UniversalConverterTab;
     }
 
     private async void WizardLibrary_Click(object sender, RoutedEventArgs e)
     {
-        if (_wizardSourcePath is null || !_wizardSourceIsReadablePackage)
+        if (_wizardSourcePath is null)
             return;
 
         try
         {
+            if (_wizardSourceIsCard)
+            {
+                SetBusy(true, "Adding memory card to Memory Card Library...");
+
+                string platform;
+                string cardType;
+                int saveCount;
+                long? capacity;
+
+                if (_wizardSourceIsPs1Card)
+                {
+                    var card = await _ps1CardService.ReadAsync(_wizardSourcePath);
+                    platform = "PlayStation";
+                    cardType = GetPs1CardTypeName(Path.GetExtension(_wizardSourcePath));
+                    saveCount = card.Saves.Count(save => !save.IsDeleted);
+                    capacity = Ps1MemoryCardService.CardSize;
+                }
+                else
+                {
+                    var card = await _engine.ReadCardAsync(_wizardSourcePath);
+                    platform = "PlayStation 2";
+                    saveCount = card.Saves.Count;
+                    if (Directory.Exists(_wizardSourcePath))
+                    {
+                        cardType = "PCSX2 Folder Memory Card";
+                        capacity = null;
+                    }
+                    else
+                    {
+                        cardType = Path.GetExtension(_wizardSourcePath)
+                            .Equals(".mc2", StringComparison.OrdinalIgnoreCase)
+                                ? "MemCard PRO2 Memory Card"
+                                : "Standard PS2 Memory Card";
+                        capacity = card.TotalBytes;
+                    }
+                }
+
+                var stored = await _memoryCardLibraryService.StoreAsync(
+                    _wizardSourcePath,
+                    platform,
+                    cardType,
+                    saveCount,
+                    capacity);
+
+                await LoadMemoryCardLibraryAsync();
+                ShowMemoryCardLibraryMode();
+                MemoryCardLibraryList.SelectedItem = stored.Entry;
+                MemoryCardLibraryList.ScrollIntoView(stored.Entry);
+                MainTabs.SelectedItem = SaveLibraryTab;
+
+                MessageBox.Show(
+                    stored.Duplicate is null
+                        ? $"{stored.Entry.DisplayName} was added to the Memory Card Library."
+                        : $"{stored.Entry.DisplayName} is already in the Memory Card Library.",
+                    "Memory Card Library",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            if (!_wizardSourceIsReadablePackage)
+                return;
+
             SetBusy(true, "Adding save to Save Library...");
+            var source = _wizardSourceIsFolderSave
+                ? await ExportWizardFolderSaveAsync()
+                : _wizardSourcePath;
             var result = await _saveLibraryService.ImportAsync(
-                _wizardSourcePath,
+                source,
                 _saveLibraryIndex);
 
             if (result.Duplicate is not null)
@@ -6316,12 +6506,13 @@ await LoadSaveLibraryIconAsync(result.Entry);
             }
             else
             {
-await LoadSaveLibraryIconAsync(result.Entry);
+                await LoadSaveLibraryIconAsync(result.Entry);
                 LibraryFooterStatus.Text =
                     $"Added {result.Entry.DisplayTitle} to Save Library.";
             }
 
             ApplySaveLibraryFilter();
+            ShowSaveLibraryMode();
             MainTabs.SelectedItem = SaveLibraryTab;
             SaveLibraryList.SelectedItem = result.Entry;
             SaveLibraryList.ScrollIntoView(result.Entry);
@@ -6330,7 +6521,7 @@ await LoadSaveLibraryIconAsync(result.Entry);
         {
             MessageBox.Show(
                 ex.Message,
-                "Save Library Import Failed",
+                "Library Import Failed",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
