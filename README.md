@@ -157,7 +157,7 @@ The goal became simple:
 
 ## Third-Party Components
 
-PlayStation Save Manager interfaces with several community projects.
+PlayStation Save Manager was interfaces with several community projects.
 
 See:
 
@@ -165,6 +165,8 @@ See:
 - CREDITS.txt
 
 for complete acknowledgements.
+
+Special thanks to the developers of myMC++, mymc, MemcardRex, PS2 Save Converter / Builder, and PCSX2 for all the inspiration.
 
 ---
 
