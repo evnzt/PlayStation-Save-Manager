@@ -11,18 +11,18 @@ Run `Build-and-Launch.cmd` to build and launch. See `README.txt` for details.
 
 ## Features
 
-- 🎮 PlayStation 1 & PlayStation 2 support
-- 💾 Memory Card Manager
-- 📂 Individual Save Manager
-- 🔄 Universal Save Converter
-- 📦 Universal Import Wizard
-- ⭐ Favorites
-- 🔍 Search & Filtering
-- 🖼 Native animated PS2 icons
-- 🎨 Native PS1 icons
-- 🗂 Memory Card Library
-- 📚 Save Library
-- 🏷️ Metadata
+- PlayStation 1 & PlayStation 2 support
+- Memory Card Manager
+- Individual Save Manager
+- Universal Save Converter
+- Universal Import Wizard
+- Favorites
+- Search & Filtering
+- Native animated PS2 icons
+- Native PS1 icons
+- Memory Card Library
+- Game Save Library
+- Metadata
 
 ---
 
@@ -96,7 +96,7 @@ The application can manage and convert between:
 The application can manage and convert between:
 | Format | Description |
 |---------|-------------|
-|.MC/MCR | PlayStation Memory Cards|
+|.MC/MCR | PlayStation 1 Memory Cards|
 |.MC2 | MemCard PRO2|
 |.PS2 | PlayStation 2 Memory Card|
 |Folder Card | PCSX2 Folder Memory Cards|
@@ -119,9 +119,11 @@ With that collection came a problem.
 
 My save files were scattered everywhere.
 
-Some lived on original memory cards. Others were on my MemCard PRO2.
+Some lived on original memory cards. Others were on my MemCard PRO2. Some were inside PCSX2. Others were in DuckStation, RetroArch, or on different devices entirely.
 
-Some were inside PCSX2. Others were in DuckStation, RetroArch, or on different devices entirely.
+And that's how this project truly came about.
+
+I ran into issues converting my .mc2 memory card files to .ps2 format so I could use them with mymc to transfer to different devices.
 
 I started looking for software that could make things easier.
 
