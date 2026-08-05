@@ -1,0 +1,28 @@
+PlayStation Save Manager v1.0.0
+-Credits-
+
+PlayStation Save Manager was created by
+Beamin
+
+Engineering assistance by
+OpenAI ChatGPT (Don't hate me. I cant code for $#!+)
+
+-Special Thanks-
+
+• The Models Resource
+  https://models.spriters-resource.com/
+
+  Memory card reference artwork and BIOS reference assets were
+  sourced from The Models Resource for this free fan project.
+  All original artwork remains the property of Sony Interactive
+  Entertainment and their respective copyright holders.
+
+• Elgato Marketplace
+
+  Several interface icons were derived from the free Entypo icon
+  pack available through the Elgato Marketplace.
+
+  https://marketplace.elgato.com/
+
+Special thanks to the retro PlayStation community,
+PCSX2, MemCard PRO2, myMC++, PS2 Converter/Builder, and everyone preserving classic games.

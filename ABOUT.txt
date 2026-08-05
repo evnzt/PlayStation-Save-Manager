@@ -1,0 +1,227 @@
+-A Letter to the Retro PlayStation Community-
+
+Hello!
+
+My name is evnzt, and before you use PlayStation Save
+Manager, I’d like to tell you a little about how this project came to be.
+
+If you’re reading this, there’s a good chance you love PlayStation just
+as much as I do.
+
+Whether it’s the original PlayStation, the PlayStation 2, a
+modern emulator/handheld, or original hardware connected to a CRT, these systems
+hold a lot of memories for many of us. Like countless others in the
+preservation community, I’ve accumulated multiple consoles, memory
+cards, handhelds, emulators, and accessories over the years.
+
+With that collection came a problem.
+
+My save files were scattered everywhere.
+
+Some lived on original memory cards. Others were on my MemCard PRO2. Some
+were inside PCSX2. Others were in DuckStation, RetroArch, or on
+different devices entirely.
+
+Managing them became more difficult than actually playing the games.
+
+And that's how this project truly came about.
+
+I ran into issues converting my .mc2 memory card files to .ps2 format
+so I could use them with mymc to transfer to different devices.
+
+I started looking for software that could make things easier.
+
+I found several excellent utilities. Some converted save files. Others
+managed memory cards. Some existing within one emulator, while others
+focused on specific save formats.
+
+They were all useful.
+
+But none of them did what i needed.
+
+That’s when one simple thought crossed my mind:
+
+  “Why isn’t there one application that can do all of this?”
+
+That question eventually became PlayStation Save Manager.
+
+
+
+-The Original Goal-
+
+This project was never meant to compete with the amazing tools that
+already exist.
+
+In fact, it was inspired by them.
+
+My goal was simply to create one modern, easy-to-use application that
+brought many of those ideas together into a single place.
+
+An application where someone could manage saves regardless of whether
+they were using:
+
+-   Original PlayStation hardware
+-   Original PlayStation 2 hardware
+-   MemCard PRO2
+-   PCSX2
+-   DuckStation
+-   RetroArch
+-   Other compatible emulators
+-   Memory card backups
+-   Save packages
+-   Or a combination of all of the above
+
+Because let’s be honest…
+
+Most of us don’t use just one system anymore.
+
+Many of us bounce between original hardware, handhelds, Steam Decks,
+gaming PCs, laptops, Raspberry Pis, Android devices, and dedicated
+emulation handhelds.
+
+Our save files deserve a home that isn’t tied to just one ecosystem.
+
+
+
+-About Me-
+
+One thing I want to be completely honest about…
+
+I’m not a professional software engineer.
+
+I’m simply someone who enjoys technology.
+
+I love restoring electronics.
+
+I enjoy preserving old hardware.
+
+I like learning how things work.
+
+Most importantly, I enjoy solving problems.
+
+This project began because I wanted a better tool for myself.
+
+Over time it slowly became something much bigger than I ever expected.
+
+If you’re an experienced programmer and you notice something in my (ChatGPT) code
+that could be improved…
+
+Please tell me. I'd genuinely love to hear your thoughts.
+
+Or better yet, if you'd like to fix it yourself, please do.
+
+Seriously.
+
+Constructive feedback, bug fixes, optimizations, and pull requests are always appreciated.
+
+Every improvement helps make the project better for everyone.
+
+I don’t claim that this application is perfect.
+
+I don’t claim that my (AI) code is perfect.
+
+I simply hope this project inspires people to build, learn, experiment,
+and improve upon what I’ve started.
+
+If PlayStation Save Manager inspires someone to create something even
+better someday…
+
+I’ll consider this project a success.
+
+
+
+-About AI-
+
+I’d also like to be transparent about something else.
+
+This project was created with the assistance of modern AI (OpenAI ChatGPT)
+
+I know that’s a topic that brings a lot of opinions, so I wanted to
+address it openly rather than hide it.
+
+AI did not magically create this application.
+
+It didn’t wake up one morning and decide to build PlayStation Save
+Manager.
+
+It was a tool.
+
+Much like documentation, forums, Stack Overflow, or a programming book,
+AI helped answer questions, explain concepts, suggest ideas, and speed
+up development.
+
+The vision, testing, feature planning, countless revisions, bug hunting,
+user interface decisions, and many late nights spent refining every
+little detail all came from a real passion for this project.
+
+Without AI, this application probably would have never happened.
+
+Without the human behind the keyboard, it never would have existed at
+all.
+
+I don’t see AI as replacing creativity.
+
+I see it as helping more people create things they otherwise couldn’t.
+
+And I hope this project encourages someone else to build something
+they’ve always wanted to make.
+
+
+
+-Free, Always-
+
+One thing I want people to know…
+
+PlayStation Save Manager is completely free.
+
+I didn’t build it to sell.
+
+I didn’t build it for advertisements.
+
+I didn’t build it to lock features behind subscriptions.
+
+I built it because I wanted it to exist.
+
+If other people find it useful too…
+
+That’s more rewarding than anything else.
+
+
+
+-Thank You-
+
+Finally…
+
+Thank you.
+
+Thank you to everyone who develops emulators.
+
+Thank you to the people documenting save formats.
+
+Thank you to the preservation community.
+
+Thank you to everyone restoring old hardware.
+
+Thank you to everyone keeping these incredible systems alive.
+
+Most importantly…
+
+Thank you for giving PlayStation Save Manager a chance.
+
+Whether this becomes a tool you use every day or simply helps you
+recover one important save file, I truly hope it makes your PlayStation
+journey a little easier.
+
+If it does…
+
+Then every hour spent building it was worth it.
+
+
+
+Happy gaming.
+
+— evnzt
+
+PlayStation Save Manager v1.0.0 2026
+
+Preserve your memories.

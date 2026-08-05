@@ -1,0 +1,18 @@
+PlayStation Save Manager v1.0.0
+Third-Party Notices
+
+This project downloads and interfaces with the following third-party software:
+
+• myMC++ 3.2.0
+  License: GNU GPL v3
+  https://github.com/Adubbz/mymcplusplus
+
+• Python 3.12 Embedded Distribution
+  License: Python Software Foundation License
+  https://www.python.org/
+
+PlayStation®, PS®, PS2®, and related marks are trademarks of Sony Interactive Entertainment.
+This project is an independent utility and is not affiliated with, endorsed by, or sponsored by Sony Interactive Entertainment.
+
+Additional third-party components, formats, or data sources may have their
+own licenses. See files distributed with those components where applicable.

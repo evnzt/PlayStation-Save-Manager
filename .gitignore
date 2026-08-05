@@ -427,3 +427,9 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# PlayStation Save Manager generated files
+.dotnet/
+Publish/
+dotnet-install.ps1
+engine-setup-error.log
