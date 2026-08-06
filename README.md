@@ -5,7 +5,9 @@
 
 # PlayStation Save Manager v1.0.0
 
-Windows utility for managing PS1 and PS2 memory cards, saves, save packages, and PCSX2 folder cards.
+![Latest Release](https://img.shields.io/github/v/release/evnzt/PlayStation-Save-Manager?label=Latest%20Release) ![Downloads](https://img.shields.io/github/downloads/evnzt/PlayStation-Save-Manager/total) ![Stars](https://img.shields.io/github/stars/evnzt/PlayStation-Save-Manager?style=social) ![Platform](https://img.shields.io/badge/Platform-Windows-0078D6) ![AI Assisted](https://img.shields.io/badge/AI-Assisted-412991)
+
+Windows utility for managing PlayStation and PlayStation 2 memory cards, save packages, conversions, and backups.
 
 Run `Build-and-Launch.cmd` to build and launch. See `README.txt` for details.
 
@@ -157,14 +159,14 @@ The goal became simple:
 
 ## Third-Party Components
 
-PlayStation Save Manager was interfaces with several community projects.
+PlayStation Save Manager interfaces with several community projects.
 
 See:
 
 - THIRD-PARTY-NOTICES.txt
 - CREDITS.txt
 
-for complete acknowledgements.
+for complete acknowledgments.
 
 Special thanks to the developers of myMC++, mymc, MemcardRex, PS2 Save Converter / Builder, and PCSX2 for all the inspiration.
 
@@ -192,6 +194,6 @@ Constructive criticism is always welcome.
 
 Created by **evnzt**
 
-Engineering assistance provided using OpenAI ChatGPT.
+Engineering assistance provided using **OpenAI ChatGPT**
 
 This project is Open source and provided completely free for the PlayStation community.
