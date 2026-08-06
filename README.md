@@ -26,8 +26,6 @@ Run `Build-and-Launch.cmd` to build and launch. See `README.txt` for details.
 - Game Save Library
 - Metadata
 
----
-
 ## Compatible With
 
 ✔ Original PlayStation
@@ -149,6 +147,137 @@ The goal became simple:
 
 ---
 
+# Installation Guide
+
+Download the latest release from the **Releases** page:
+
+**https://github.com/evnzt/PlayStation-Save-Manager/releases/latest**
+
+Download the latest Windows package:
+
+`PlayStation_Save_Manager_vX.X.X_Windows_x64.zip`
+
+## Extract
+
+Extract the ZIP anywhere you like.
+
+Example location:
+
+``` text
+C:\Emulation\PlayStation Save Manager\
+```
+
+No installation is required.
+
+PlayStation Save Manager is completely portable.
+
+-   No installer
+-   No registry modifications
+-   No administrator privileges required
+-   Can be placed on a USB drive
+
+## Launch
+
+Run:
+
+``` text
+Launch.cmd
+```
+
+or
+
+``` text
+Build-and-Launch.cmd
+```
+
+The launcher will automatically:
+
+-   Verify the required runtime
+-   Download the myMC++ engine (first launch only)
+-   Configure the application
+-   Start PlayStation Save Manager
+-   *If Build-and-Launch is selected, then it will build the .exe in the Publish folder
+
+> **Note:** The first launch may take 30--60 seconds while the required
+> engine is downloaded. Future launches are much faster.
+> 
+> On first launch, PlayStation Save Manager also downloads the official myMC++ release
+> directly from its original project and configures it automatically, which powers
+> several memory card operations.
+
+This happens only once.
+
+After setup is complete, everything runs locally.
+
+## Updating
+
+1.  Download the latest release.
+2.  Extract it over your existing installation (or into a new folder).
+3.  Launch the application.
+
+Your save libraries, settings, and memory cards are **not modified** by
+the update process.
+
+------------------------------------------------------------------------
+
+## Troubleshooting
+
+### Windows SmartScreen
+
+Because PSM is currently unsigned, Windows may display a warning the
+first time it is launched.
+
+Click:
+
+``` text
+More info
+```
+
+then
+
+``` text
+Run anyway
+```
+
+### Antivirus Warning
+
+Some antivirus programs may flag unsigned applications or scripts.
+
+PlayStation Save Manager is open source, so you can inspect the code
+yourself before running it.
+
+### Engine Download Failed
+
+If the setup cannot download the required engine:
+
+-   Check your internet connection.
+-   Temporarily allow PowerShell through your firewall if prompted.
+-   Run `Launch.cmd` again.
+
+------------------------------------------------------------------------
+
+## Building from Source
+
+Clone the repository:
+
+``` bash
+git clone https://github.com/evnzt/PlayStation-Save-Manager.git
+```
+
+Then run either:
+
+``` text
+Build-and-Launch.cmd
+```
+
+or
+
+``` text
+Build-Release.cmd
+```
+
+---
+
 ## Built With
 
 - C#
@@ -157,7 +286,7 @@ The goal became simple:
 
 ---
 
-## Third-Party Components
+## Third-Party Components - Credits
 
 PlayStation Save Manager interfaces with several community projects.
 
@@ -167,6 +296,11 @@ See:
 - CREDITS.txt
 
 for complete acknowledgments.
+
+• myMC++
+  PS2 memory card engine used by PlayStation Save Manager.
+  Copyright © the myMC++ contributors. Used under the GNU GPL v3 license.
+  https://github.com/Adubbz/mymcplusplus
 
 Special thanks to the developers of myMC++, mymc, MemcardRex, PS2 Save Converter / Builder, and PCSX2 for all the inspiration.
 
