@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:conv="clr-namespace:PlayStationSaveManager.Converters"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        Title="PlayStation Save Manager v1.0.1" Height="980" Width="1560"
+        Title="PlayStation Save Manager v1.0.0" Height="980" Width="1560"
         MinHeight="780" MinWidth="1220" WindowStartupLocation="CenterScreen"
         WindowStyle="None" ResizeMode="CanResize" Background="#070B10"
         Foreground="#F4F7FB" AllowDrop="True"
@@ -759,7 +759,7 @@
                             Margin="11,0,0,0">
                     <Image Source="app-icon-preview.png" Width="17" Height="17"
                            Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/>
-                    <TextBlock Text="PlayStation Save Manager v1.0.1"
+                    <TextBlock Text="PlayStation Save Manager v1.0.0"
                                Foreground="#DDE6F2"
                                FontSize="12"
                                VerticalAlignment="Center"/>

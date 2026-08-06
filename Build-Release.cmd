@@ -22,7 +22,7 @@ if not exist "%DOTNET%" (
 if exist "%PUBLISH%" rmdir /s /q "%PUBLISH%"
 mkdir "%PUBLISH%" >nul 2>&1
 
-echo Publishing PlayStation Save Manager v1.0.1...
+echo Publishing PlayStation Save Manager v1.0.0...
 "%DOTNET%" publish "%PROJECT%" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o "%PUBLISH%"
 if errorlevel 1 goto :error
 
