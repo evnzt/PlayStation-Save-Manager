@@ -1,6 +1,4 @@
-<p align="center">
-<img width="1014" height="222" alt="PSM Logo" src="https://github.com/user-attachments/assets/14e14033-411b-4352-8f4e-996ad66c7c50" />
-</p>
+<picture> <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/evnzt/PlayStation-Save-Manager/main/Assets/GitHub/psm-logo-white.png"> <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/evnzt/PlayStation-Save-Manager/main/Assets/GitHub/psm-logo-black.png"> <img alt="PlayStation Save Manager" src="https://raw.githubusercontent.com/evnzt/PlayStation-Save-Manager/main/Assets/GitHub/psm-logo-black.png"> </picture>
 
 
 # PlayStation Save Manager v1.0.0
@@ -105,7 +103,7 @@ The application can manage and convert between:
 
 ---
 
-<img width="1560" height="980" alt="image" src="https://github.com/user-attachments/assets/c435cc9e-d525-488f-b15e-9ab0c0905c73" />
+<img width="1560" height="980" alt="screenshot" src="https://github.com/user-attachments/assets/c7035752-3864-4d2b-bbad-cc5d5ef04f8b" />
 
 ---
 
