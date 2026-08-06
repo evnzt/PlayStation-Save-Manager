@@ -310,15 +310,19 @@ public sealed class SaveLibraryService
         if (!string.IsNullOrWhiteSpace(destinationDirectory))
             Directory.CreateDirectory(destinationDirectory);
 
-        await using var source = new FileStream(
+        // Close both streams before verification.  The previous implementation
+        // calculated the destination hash while the destination stream still held
+        // FileShare.None, which made a successful export report a false lock error.
+        await using (var source = new FileStream(
             storedPath, FileMode.Open, FileAccess.Read, FileShare.Read,
-            81920, useAsync: true);
-        await using var destination = new FileStream(
+            81920, useAsync: true))
+        await using (var destination = new FileStream(
             destinationPath, FileMode.Create, FileAccess.Write, FileShare.None,
-            81920, useAsync: true);
-
-        await source.CopyToAsync(destination, cancellationToken);
-        await destination.FlushAsync(cancellationToken);
+            81920, useAsync: true))
+        {
+            await source.CopyToAsync(destination, cancellationToken);
+            await destination.FlushAsync(cancellationToken);
+        }
 
         var sourceHash = await ComputeSha256Async(
             storedPath, cancellationToken);
@@ -371,7 +375,26 @@ public sealed class SaveLibraryService
         {
             var cardPath = Path.Combine(temporaryRoot, "inspect.ps2");
             await _engine.CreateCardAsync(cardPath, false, cancellationToken);
-            await _engine.ImportAsync(cardPath, packagePath, cancellationToken);
+
+            var inspectionPackagePath = packagePath;
+            if (Path.GetExtension(packagePath).Equals(
+                ".sps",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                inspectionPackagePath = Path.Combine(
+                    temporaryRoot,
+                    "normalized-inspection.psu");
+
+                await SpsPackageService.ConvertToPsuAsync(
+                    packagePath,
+                    inspectionPackagePath,
+                    cancellationToken);
+            }
+
+            await _engine.ImportAsync(
+                cardPath,
+                inspectionPackagePath,
+                cancellationToken);
             await _engine.CheckAsync(cardPath, cancellationToken);
 
             var saves = await _engine.ReadDirectoryAsync(cardPath, cancellationToken);

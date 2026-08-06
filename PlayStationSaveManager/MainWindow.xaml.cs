@@ -85,7 +85,7 @@ public partial class MainWindow : Window
         new(".bin", "pSX / AdriPSX Memory Card", true, true),
         new(".mcd", "Bleem! Memory Card", true, true),
         new(".mc", "PSXGame Edit Memory Card", true, true),
-        new(".gme", "DexDrive Memory Card", false, false),
+        new(".gme", "DexDrive Memory Card", true, true),
         new(".mem", "VGS Memory Card", false, false),
         new(".vgs", "VGS Memory Card", false, false),
         new(".ddf", "DataDeck Memory Card", false, false),
@@ -93,7 +93,8 @@ public partial class MainWindow : Window
         new(".psm", "Smart Link Memory Card", false, false),
         new(".mci", "MCExplorer Memory Card", false, false),
         new(".vmp", "PSP Virtual Memory Card", false, false),
-        new(".vm1", "PS3 Virtual Memory Card", false, false),
+        new(".vm1", "PS3 Virtual Memory Card", true, true),
+        new(".ps1save", "PSM PlayStation Save Package", true, true),
         new(".psu", "EMS / Memory Linker PSU", true, true),
         new(".max", "ARMAX V3", true, true),
         new(".cbs", "CodeBreaker Save", true, false),
@@ -1210,16 +1211,26 @@ public partial class MainWindow : Window
     private async Task ExportSelectedAsync(string? card, SaveEntry? save)
     {
         if (card is null || save is null) return;
-        var dialog = new Microsoft.Win32.SaveFileDialog { Filter = "EMS PSU Save|*.psu", FileName = save.DirectoryId + ".psu" };
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Export PS2 Save",
+            Filter = "EMS / Memory Linker PSU (*.psu)|*.psu|Action Replay MAX (*.max)|*.max",
+            DefaultExt = ".psu",
+            FileName = save.DirectoryId + ".psu"
+        };
         if (dialog.ShowDialog() != true) return;
         try
         {
             SetBusy(true, "Exporting save...");
-            await _engine.ExportPsuAsync(card, save.DirectoryId, dialog.FileName);
+            await _engine.ExportPackageAsync(card, save.DirectoryId, dialog.FileName);
             Log($"Exported {save.DirectoryId} to {dialog.FileName}.");
-            MessageBox.Show("Save exported successfully.", "Export Complete", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show("Save exported and verified successfully.", "Export Complete",
+                MessageBoxButton.OK, MessageBoxImage.Information);
         }
-        catch (Exception ex) { MessageBox.Show(ex.Message, "Export Failed", MessageBoxButton.OK, MessageBoxImage.Error); }
+        catch (Exception ex)
+        {
+            MessageBox.Show(ex.Message, "Export Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
         finally { SetBusy(false, "Ready."); }
     }
 
@@ -2464,23 +2475,36 @@ public partial class MainWindow : Window
         }
 
         UniversalDetectedFormat.Text = $"Detected format: {sourceFormat.DisplayName} ({extension.ToUpperInvariant()})";
-        var isPs1Card = extension is ".mcr" or ".srm" or ".bin" or ".mcd" or ".mc";
+        var isPs1Card = extension is ".mcr" or ".srm" or ".bin" or ".mcd" or ".mc" or ".gme" or ".vm1";
         var isCard =
             isPs1Card ||
             extension is ".mc2" or ".ps2" or ".foldercard";
-        UniversalModeText.Text = isCard ? "Whole-memory-card conversion" : "Packaged-save conversion";
+        UniversalModeText.Text = isCard
+            ? "Whole-memory-card conversion"
+            : extension == ".ps1save"
+                ? "PlayStation save-package conversion"
+                : "PlayStation 2 packaged-save conversion";
 
-        var outputs = (isCard
-            ? UniversalFormats.Where(format => format.CanWrite &&
-                (isPs1Card
-                    ? format.Extension is ".mcr" or ".srm" or ".bin" or ".mcd" or ".mc"
-                    : format.Extension is ".mc2" or ".ps2" or ".foldercard"))
-            : UniversalFormats.Where(format => format.CanWrite)).ToArray();
+        var isPs1Package = extension == ".ps1save";
+        var isPs2Card = extension is ".mc2" or ".ps2" or ".foldercard";
+        var isPs2Package = !isPs1Card && !isPs1Package && !isPs2Card;
+
+        // Never offer cross-console conversions.  Targets are limited to formats
+        // for which PSM has a verified writer, not merely a recognized extension.
+        var outputs = UniversalFormats.Where(format => format.CanWrite &&
+            (isPs1Card
+                ? format.Extension is ".mcr" or ".srm" or ".bin" or ".mcd" or ".mc" or ".gme" or ".vm1"
+                : isPs1Package
+                    ? format.Extension is ".mcr" or ".srm" or ".bin" or ".mcd" or ".mc" or ".gme" or ".vm1"
+                    : isPs2Card
+                        ? format.Extension is ".mc2" or ".ps2" or ".foldercard"
+                        : format.Extension is ".psu" or ".max" or ".mc2" or ".ps2" or ".foldercard"))
+            .ToArray();
 
         UniversalTargetFormat.ItemsSource = outputs;
-        var preferred = isPs1Card
+        var preferred = isPs1Card || isPs1Package
             ? (extension == ".mcr" ? ".srm" : ".mcr")
-            : isCard
+            : isPs2Card
                 ? extension == ".foldercard"
                     ? ".ps2"
                     : (extension == ".mc2" ? ".ps2" : ".mc2")
@@ -2498,8 +2522,10 @@ public partial class MainWindow : Window
         else
         {
             UniversalConversionReport.Text = isCard
-                ? "Every save will be copied to a temporary destination card and verified before the output is committed."
-                : "The package will be imported into a temporary card and exported through a verified output adapter.";
+                ? "Only same-console memory-card targets are shown. Every output is verified before it is committed."
+                : extension == ".ps1save"
+                    ? "This individual PS1 save can be exported as a verified single-save PS1 memory card."
+                    : "Only compatible PS2 outputs are shown. The package is imported into a temporary card and verified before export.";
             UniversalConvertButton.IsEnabled = UniversalTargetFormat.SelectedItem is not null;
         }
         UpdateUniversalOutputSuggestion();
@@ -2603,7 +2629,33 @@ public partial class MainWindow : Window
                     format.Extension == sourceExtension);
 
         var rawPs1Extensions =
-            new[] { ".mcr", ".srm", ".bin", ".mcd", ".mc" };
+            new[] { ".mcr", ".srm", ".bin", ".mcd", ".mc", ".gme", ".vm1" };
+
+        if (sourceExtension == ".ps1save" &&
+            rawPs1Extensions.Contains(target.Extension))
+        {
+            try
+            {
+                SetBusy(true, "Creating single-save PS1 memory card...");
+                await _ps1CardService.CreateSingleSaveCardFromPackageAsync(
+                    source, output);
+                UniversalConversionReport.Text =
+                    "PS1 save exported to a verified single-save memory card.";
+                MessageBox.Show(
+                    "PS1 save converted and verified.",
+                    "Conversion Complete",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                UniversalConversionReport.Text = ex.Message;
+                MessageBox.Show(ex.Message, "PS1 Conversion Failed",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally { SetBusy(false, "Ready."); }
+            return;
+        }
 
         if (rawPs1Extensions.Contains(sourceExtension) &&
             rawPs1Extensions.Contains(target.Extension))
@@ -2779,11 +2831,19 @@ public partial class MainWindow : Window
         var save = saves[0];
         AppendUniversalLog($"Imported directory: {save.DirectoryId}");
 
-        if (target.Extension is ".mc2" or ".ps2")
+        if (target.Extension is ".mc2" or ".ps2" or ".foldercard")
         {
             if (target.Extension == ".ps2")
             {
                 CommitUniversalOutput(temporaryCard, output);
+                return;
+            }
+
+            if (target.Extension == ".foldercard")
+            {
+                await _engine.ConvertToPcsx2FolderCardAsync(temporaryCard, output);
+                await _engine.CheckAsync(output);
+                AppendUniversalLog($"Committed verified folder card: {output}");
                 return;
             }
 
@@ -3047,9 +3107,23 @@ public partial class MainWindow : Window
                 cardPath,
                 false);
 
+            var previewPackagePath = packagePath;
+            if (entry.Extension.Equals(
+                ".sps",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                previewPackagePath = Path.Combine(
+                    temporaryRoot,
+                    "normalized-preview.psu");
+
+                await SpsPackageService.ConvertToPsuAsync(
+                    packagePath,
+                    previewPackagePath);
+            }
+
             await _engine.ImportAsync(
                 cardPath,
-                packagePath);
+                previewPackagePath);
 
             await _engine.CheckAsync(
                 cardPath);
@@ -3384,6 +3458,8 @@ await LoadSaveLibraryIconAsync(entry);
             ".bin" => "pSX / AdriPSX Memory Card",
             ".mcd" => "Bleem! Memory Card",
             ".mc" => "PSXGame Edit Memory Card",
+            ".gme" => "DexDrive Memory Card",
+            ".vm1" => "PS3 Virtual Memory Card",
             _ => "Standard PS1 Memory Card"
         };
 
@@ -3639,9 +3715,9 @@ await LoadSaveLibraryIconAsync(entry);
                     Multiselect = false,
                     Filter =
                         "Supported memory cards|" +
-                        "*.ps2;*.mc2;*.mcr;*.srm;*.bin;*.mcd;*.mc|" +
+                        "*.ps2;*.mc2;*.mcr;*.srm;*.bin;*.mcd;*.mc;*.gme;*.vm1|" +
                         "PS2 memory cards|*.ps2;*.mc2|" +
-                        "PS1 memory cards|*.mcr;*.srm;*.bin;*.mcd;*.mc|" +
+                        "PS1 memory cards|*.mcr;*.srm;*.bin;*.mcd;*.mc;*.gme;*.vm1|" +
                         "All files|*.*"
                 };
 
@@ -3706,7 +3782,7 @@ await LoadSaveLibraryIconAsync(entry);
                 }
             }
             else if (extension is
-                ".mcr" or ".srm" or ".bin" or ".mcd" or ".mc")
+                ".mcr" or ".srm" or ".bin" or ".mcd" or ".mc" or ".gme" or ".vm1")
             {
                 platform = "PlayStation";
 
@@ -4398,7 +4474,22 @@ await LoadSaveLibraryIconAsync(result.Entry);
         {
             var cardPath = Path.Combine(temporaryRoot, "preview-card.ps2");
             await _engine.CreateCardAsync(cardPath, false);
-            await _engine.ImportAsync(cardPath, packagePath);
+
+            var previewPackagePath = packagePath;
+            if (entry.Extension.Equals(
+                ".sps",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                previewPackagePath = Path.Combine(
+                    temporaryRoot,
+                    "normalized-preview.psu");
+
+                await SpsPackageService.ConvertToPsuAsync(
+                    packagePath,
+                    previewPackagePath);
+            }
+
+            await _engine.ImportAsync(cardPath, previewPackagePath);
             await _engine.CheckAsync(cardPath);
 
             var saves = await _engine.ReadDirectoryAsync(cardPath);
@@ -4997,7 +5088,14 @@ await LoadSaveLibraryIconAsync(result.Entry);
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
             Title = "Export PS1 Save",
-            Filter = "PSM PlayStation Save Package (*.ps1save)|*.ps1save",
+            Filter =
+                "PSM PlayStation Save Package (*.ps1save)|*.ps1save|" +
+                "ePSXe / PSEmu Pro Memory Card (*.mcr)|*.mcr|" +
+                "RetroArch / Libretro Memory Card (*.srm)|*.srm|" +
+                "pSX / AdriPSX Memory Card (*.bin)|*.bin|" +
+                "Bleem! Memory Card (*.mcd)|*.mcd|" +
+                "PSXGame Edit Memory Card (*.mc)|*.mc|" +
+                "PS3 Virtual Memory Card (*.vm1)|*.vm1",
             DefaultExt = ".ps1save",
             FileName = safeTitle + ".ps1save"
         };
@@ -5009,10 +5107,31 @@ await LoadSaveLibraryIconAsync(result.Entry);
         {
             SetBusy(true, $"Exporting {save.Title}...");
 
-            await _ps1CardService.ExportSavePackageAsync(
-                cardPath,
-                save,
-                dialog.FileName);
+            var destinationExtension = Path.GetExtension(dialog.FileName).ToLowerInvariant();
+            if (destinationExtension == ".ps1save")
+            {
+                await _ps1CardService.ExportSavePackageAsync(
+                    cardPath,
+                    save,
+                    dialog.FileName);
+            }
+            else
+            {
+                var temporaryPackage = Path.Combine(
+                    Path.GetTempPath(),
+                    "PSM-PS1-EXPORT-" + Guid.NewGuid().ToString("N") + ".ps1save");
+                try
+                {
+                    await _ps1CardService.ExportSavePackageAsync(
+                        cardPath, save, temporaryPackage);
+                    await _ps1CardService.CreateSingleSaveCardFromPackageAsync(
+                        temporaryPackage, dialog.FileName);
+                }
+                finally
+                {
+                    try { File.Delete(temporaryPackage); } catch { }
+                }
+            }
 
             MessageBox.Show(
                 $"PS1 save exported and verified.\n\n{dialog.FileName}",
@@ -5894,9 +6013,26 @@ await LoadSaveLibraryIconAsync(result.Entry);
         if (SaveLibraryList.SelectedItem is not SaveLibraryEntry entry)
             return;
 
+        var isPs1 = entry.Extension.Equals(".ps1save", StringComparison.OrdinalIgnoreCase) ||
+                    entry.Platform.Contains("PlayStation", StringComparison.OrdinalIgnoreCase) &&
+                    !entry.Platform.Contains("2", StringComparison.OrdinalIgnoreCase);
+
+        var filter = isPs1
+            ? "PSM PlayStation Save Package (*.ps1save)|*.ps1save|" +
+              "ePSXe / PSEmu Pro Memory Card (*.mcr)|*.mcr|" +
+              "RetroArch / Libretro Memory Card (*.srm)|*.srm|" +
+              "pSX / AdriPSX Memory Card (*.bin)|*.bin|" +
+              "Bleem! Memory Card (*.mcd)|*.mcd|" +
+              "PSXGame Edit Memory Card (*.mc)|*.mc|" +
+              "PS3 Virtual Memory Card (*.vm1)|*.vm1"
+            : "Original Save Package|*" + entry.Extension + "|" +
+              "EMS / Memory Linker PSU (*.psu)|*.psu|" +
+              "Action Replay MAX (*.max)|*.max";
+
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
-            Filter = $"{entry.FormatName}|*{entry.Extension}",
+            Title = "Export Save",
+            Filter = filter,
             DefaultExt = entry.Extension,
             FileName = entry.OriginalFileName
         };
@@ -5907,7 +6043,42 @@ await LoadSaveLibraryIconAsync(result.Entry);
         try
         {
             SetBusy(true, "Exporting library save...");
-            await _saveLibraryService.ExportAsync(entry, dialog.FileName);
+            var destinationExtension = Path.GetExtension(dialog.FileName).ToLowerInvariant();
+            var storedPath = _saveLibraryService.GetStoredPath(entry);
+
+            if (destinationExtension.Equals(entry.Extension, StringComparison.OrdinalIgnoreCase))
+            {
+                await _saveLibraryService.ExportAsync(entry, dialog.FileName);
+            }
+            else if (isPs1)
+            {
+                await _ps1CardService.CreateSingleSaveCardFromPackageAsync(
+                    storedPath, dialog.FileName);
+            }
+            else
+            {
+                var temporaryRoot = Path.Combine(
+                    Path.GetTempPath(), "PSM-LIBRARY-EXPORT-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(temporaryRoot);
+                try
+                {
+                    var card = Path.Combine(temporaryRoot, "export.ps2");
+                    await _engine.CreateCardAsync(card, false);
+                    await _engine.ImportAsync(card, storedPath);
+                    await _engine.CheckAsync(card);
+                    var saves = await _engine.ReadDirectoryAsync(card);
+                    var save = saves.FirstOrDefault(candidate =>
+                        candidate.DirectoryId.Equals(entry.DirectoryId, StringComparison.OrdinalIgnoreCase))
+                        ?? saves.SingleOrDefault()
+                        ?? throw new InvalidDataException("The stored save could not be verified.");
+                    await _engine.ExportPackageAsync(card, save.DirectoryId, dialog.FileName);
+                }
+                finally
+                {
+                    try { Directory.Delete(temporaryRoot, true); } catch { }
+                }
+            }
+
             LibraryFooterStatus.Text =
                 $"Export verified: {Path.GetFileName(dialog.FileName)}";
             Log($"Save Library export verified: {dialog.FileName}");
@@ -5920,16 +6091,10 @@ await LoadSaveLibraryIconAsync(result.Entry);
         catch (Exception ex)
         {
             Log("Save Library export failed: " + ex.Message);
-            MessageBox.Show(
-                ex.Message,
-                "Save Library Export Failed",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+            MessageBox.Show(ex.Message, "Save Library Export Failed",
+                MessageBoxButton.OK, MessageBoxImage.Error);
         }
-        finally
-        {
-            SetBusy(false, "Ready.");
-        }
+        finally { SetBusy(false, "Ready."); }
     }
 
     private async void LibraryRemove_Click(
@@ -6186,7 +6351,7 @@ await LoadSaveLibraryIconAsync(result.Entry);
         _wizardFolderSaveId = folderSave ? folderSaveId : null;
         _wizardSourceIsPs1Card =
             !folderSave &&
-            extension is ".mcr" or ".srm" or ".bin" or ".mcd" or ".mc";
+            extension is ".mcr" or ".srm" or ".bin" or ".mcd" or ".mc" or ".gme" or ".vm1";
         _wizardSourceIsCard =
             folderCard ||
             _wizardSourceIsPs1Card ||

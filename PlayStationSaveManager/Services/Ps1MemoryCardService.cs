@@ -21,19 +21,27 @@ public sealed class Ps1MemoryCardService
     private const int DirectoryOffset = FrameSize;
     private const int DirectoryEntries = 15;
 
-    private static readonly HashSet<string> RawExtensions =
+    private static readonly HashSet<string> WritableCardExtensions =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ".mcr", ".srm", ".bin", ".mcd", ".mc"
+            ".mcr", ".srm", ".bin", ".mcd", ".mc", ".gme", ".vm1"
+        };
+
+    private static readonly HashSet<string> ReadableCardExtensions =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".mcr", ".srm", ".bin", ".mcd", ".mc", ".gme", ".vm1"
         };
 
     public static string FileDialogFilter =>
-        "PS1 Memory Cards|*.mcr;*.srm;*.bin;*.mcd;*.mc|" +
+        "PS1 Memory Cards|*.mcr;*.srm;*.bin;*.mcd;*.mc;*.gme;*.vm1|" +
         "ePSXe / PSEmu Pro (*.mcr)|*.mcr|" +
         "RetroArch / Libretro (*.srm)|*.srm|" +
         "pSX / AdriPSX (*.bin)|*.bin|" +
         "Bleem! (*.mcd)|*.mcd|" +
         "PSXGame Edit (*.mc)|*.mc|" +
+        "DexDrive (*.gme)|*.gme|" +
+        "PS3 Virtual Memory Card (*.vm1)|*.vm1|" +
         "All files|*.*";
 
     public async Task CreateEmptyCardAsync(
@@ -41,9 +49,9 @@ public sealed class Ps1MemoryCardService
         CancellationToken cancellationToken = default)
     {
         var extension = Path.GetExtension(destinationPath);
-        if (!RawExtensions.Contains(extension))
+        if (!WritableCardExtensions.Contains(extension))
             throw new NotSupportedException(
-                "New PS1 cards can be created as MCR, SRM, BIN, MCD, or MC.");
+                "New PS1 cards can be created as MCR, SRM, BIN, MCD, MC, GME, or VM1.");
 
         if (File.Exists(destinationPath))
             throw new IOException(
@@ -83,15 +91,17 @@ public sealed class Ps1MemoryCardService
 
         try
         {
+            var encoded = EncodeNewCardBytes(destinationPath, card);
             await File.WriteAllBytesAsync(
                 destinationPath,
-                card,
+                encoded,
                 cancellationToken);
 
-            var verification =
+            var verificationFile =
                 await File.ReadAllBytesAsync(
                     destinationPath,
                     cancellationToken);
+            var verification = DecodeCardBytes(verificationFile, destinationPath);
 
             ValidateRawCard(
                 verification,
@@ -128,7 +138,7 @@ public sealed class Ps1MemoryCardService
                 "The PS1 memory card was not found.",
                 path);
 
-        var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
+        var bytes = await ReadCardBytesAsync(path, cancellationToken);
         ValidateRawCard(bytes, path);
 
         var saves = ParseSaves(bytes, path);
@@ -151,7 +161,7 @@ public sealed class Ps1MemoryCardService
         string destinationPath,
         CancellationToken cancellationToken = default)
     {
-        var card = await File.ReadAllBytesAsync(
+        var card = await ReadCardBytesAsync(
             cardPath,
             cancellationToken);
 
@@ -402,10 +412,10 @@ public sealed class Ps1MemoryCardService
         bool replaceExisting = false,
         CancellationToken cancellationToken = default)
     {
-        var source = await File.ReadAllBytesAsync(
+        var source = await ReadCardBytesAsync(
             sourcePath,
             cancellationToken);
-        var destination = await File.ReadAllBytesAsync(
+        var destination = await ReadCardBytesAsync(
             destinationPath,
             cancellationToken);
 
@@ -567,7 +577,7 @@ public sealed class Ps1MemoryCardService
         CancellationToken cancellationToken = default)
     {
         var card =
-            await File.ReadAllBytesAsync(
+            await ReadCardBytesAsync(
                 cardPath,
                 cancellationToken);
 
@@ -611,29 +621,31 @@ public sealed class Ps1MemoryCardService
         string destinationPath,
         CancellationToken cancellationToken = default)
     {
-        var source = await File.ReadAllBytesAsync(
+        var source = await ReadCardBytesAsync(
             sourcePath,
             cancellationToken);
 
         ValidateRawCard(source, sourcePath);
 
         var extension = Path.GetExtension(destinationPath);
-        if (!RawExtensions.Contains(extension))
+        if (!WritableCardExtensions.Contains(extension))
             throw new NotSupportedException(
-                "The initial PS1 engine writes MCR, SRM, BIN, MCD, and MC cards.");
+                "The PS1 engine writes MCR, SRM, BIN, MCD, MC, GME, and VM1 cards.");
 
         var destinationDirectory = Path.GetDirectoryName(destinationPath);
         if (!string.IsNullOrWhiteSpace(destinationDirectory))
             Directory.CreateDirectory(destinationDirectory);
 
+        var encoded = EncodeNewCardBytes(destinationPath, source);
         await File.WriteAllBytesAsync(
             destinationPath,
-            source,
+            encoded,
             cancellationToken);
 
-        var verification = await File.ReadAllBytesAsync(
+        var verificationFile = await File.ReadAllBytesAsync(
             destinationPath,
             cancellationToken);
+        var verification = DecodeCardBytes(verificationFile, destinationPath);
         ValidateRawCard(verification, destinationPath);
 
         if (!source.AsSpan().SequenceEqual(verification))
@@ -641,36 +653,119 @@ public sealed class Ps1MemoryCardService
                 "The exported PS1 card did not match the source.");
     }
 
+
+    public async Task CreateSingleSaveCardFromPackageAsync(
+        string packagePath,
+        string destinationPath,
+        CancellationToken cancellationToken = default)
+    {
+        var extension = Path.GetExtension(destinationPath);
+        if (!WritableCardExtensions.Contains(extension))
+            throw new NotSupportedException(
+                "PS1 save packages can be exported as MCR, SRM, BIN, MCD, MC, GME, or VM1 cards.");
+
+        var manifest = await InspectSavePackageAsync(packagePath, cancellationToken);
+        byte[] directoryFrames;
+        byte[] saveBlocks;
+
+        await using (var packageStream = File.OpenRead(packagePath))
+        using (var archive = new ZipArchive(packageStream, ZipArchiveMode.Read))
+        {
+            var directoryEntry = archive.GetEntry("directory-frames.bin")
+                ?? throw new InvalidDataException("The PS1 package has no directory frames.");
+            var blocksEntry = archive.GetEntry("save-blocks.bin")
+                ?? throw new InvalidDataException("The PS1 package has no save blocks.");
+
+            await using var directoryStream = directoryEntry.Open();
+            using var directoryMemory = new MemoryStream();
+            await directoryStream.CopyToAsync(directoryMemory, cancellationToken);
+            directoryFrames = directoryMemory.ToArray();
+
+            await using var blocksStream = blocksEntry.Open();
+            using var blocksMemory = new MemoryStream();
+            await blocksStream.CopyToAsync(blocksMemory, cancellationToken);
+            saveBlocks = blocksMemory.ToArray();
+        }
+
+        var temporary = destinationPath + ".tmp-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            // Build the temporary card in canonical raw form. The requested
+            // wrapper (including DexDrive GME) is applied only after the
+            // populated card has passed PS1 save verification.
+            var temporaryCard = temporary + ".mcr";
+            await CreateEmptyCardAsync(temporaryCard, cancellationToken);
+            var card = await File.ReadAllBytesAsync(temporaryCard, cancellationToken);
+
+            for (var index = 0; index < manifest.BlockChain.Count; index++)
+            {
+                var block = manifest.BlockChain[index];
+                if (block < 1 || block > DirectoryEntries)
+                    throw new InvalidDataException("The PS1 package contains an invalid block number.");
+
+                Buffer.BlockCopy(
+                    directoryFrames, index * FrameSize,
+                    card, DirectoryOffset + (block - 1) * FrameSize,
+                    FrameSize);
+                Buffer.BlockCopy(
+                    saveBlocks, index * BlockSize,
+                    card, block * BlockSize,
+                    BlockSize);
+            }
+
+            await File.WriteAllBytesAsync(temporaryCard, card, cancellationToken);
+            var verified = await ReadAsync(temporaryCard, cancellationToken);
+            var exported = verified.Saves.FirstOrDefault(save =>
+                !save.IsDeleted &&
+                save.FileName.Equals(manifest.OriginalFileName, StringComparison.OrdinalIgnoreCase));
+            if (exported is null || exported.BlocksUsed != manifest.BlocksUsed)
+                throw new InvalidDataException("The single-save PS1 card failed verification.");
+
+            var destinationDirectory = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrWhiteSpace(destinationDirectory))
+                Directory.CreateDirectory(destinationDirectory);
+            await SaveCardAsAsync(temporaryCard, destinationPath, cancellationToken);
+        }
+        finally
+        {
+            foreach (var candidate in Directory.GetFiles(
+                Path.GetDirectoryName(temporary) ?? Path.GetTempPath(),
+                Path.GetFileName(temporary) + "*"))
+            {
+                try { File.Delete(candidate); } catch { }
+            }
+        }
+    }
+
     public async Task BackupAsync(
         string sourcePath,
         CancellationToken cancellationToken = default)
     {
-        var bytes = await File.ReadAllBytesAsync(
+        var fileBytes = await File.ReadAllBytesAsync(
             sourcePath,
             cancellationToken);
-        ValidateRawCard(bytes, sourcePath);
+        var cardBytes = DecodeCardBytes(fileBytes, sourcePath);
+        ValidateRawCard(cardBytes, sourcePath);
 
         var backup = CreateBackupPath(sourcePath);
         await File.WriteAllBytesAsync(
             backup,
-            bytes,
+            fileBytes,
             cancellationToken);
     }
 
     public static bool LooksLikeSupportedCard(string path)
     {
-        if (!RawExtensions.Contains(Path.GetExtension(path)))
+        if (!ReadableCardExtensions.Contains(Path.GetExtension(path)))
             return false;
 
         try
         {
-            var info = new FileInfo(path);
-            if (info.Length != CardSize)
-                return false;
-
-            using var stream = File.OpenRead(path);
-            return stream.ReadByte() == 0x4D &&
-                   stream.ReadByte() == 0x43;
+            var bytes = File.ReadAllBytes(path);
+            var card = DecodeCardBytes(bytes, path);
+            return card.Length == CardSize &&
+                   card[0] == 0x4D &&
+                   card[1] == 0x43;
         }
         catch
         {
@@ -859,13 +954,120 @@ public sealed class Ps1MemoryCardService
         }
     }
 
+    private static async Task<byte[]> ReadCardBytesAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        var fileBytes = await File.ReadAllBytesAsync(path, cancellationToken);
+        return DecodeCardBytes(fileBytes, path);
+    }
+
+    private static byte[] DecodeCardBytes(byte[] fileBytes, string path)
+    {
+        if (!Path.GetExtension(path).Equals(".gme", StringComparison.OrdinalIgnoreCase))
+            return fileBytes;
+
+        // PlayStation DexDrive GME cards store the standard 128 KiB card image
+        // after a metadata header. Real-world files commonly use a 0xF40-byte
+        // header, so prefer that layout and also accept a valid raw image at
+        // the end of the file for compatible variants.
+        const int standardHeaderSize = 0xF40;
+        if (fileBytes.Length >= standardHeaderSize + CardSize &&
+            fileBytes[standardHeaderSize] == 0x4D &&
+            fileBytes[standardHeaderSize + 1] == 0x43)
+        {
+            return fileBytes
+                .AsSpan(standardHeaderSize, CardSize)
+                .ToArray();
+        }
+
+        var tailOffset = fileBytes.Length - CardSize;
+        if (tailOffset >= 0 &&
+            fileBytes[tailOffset] == 0x4D &&
+            fileBytes[tailOffset + 1] == 0x43)
+        {
+            return fileBytes
+                .AsSpan(tailOffset, CardSize)
+                .ToArray();
+        }
+
+        throw new InvalidDataException(
+            "The DexDrive GME file does not contain a valid 128 KB PlayStation memory-card image.");
+    }
+
+    private static byte[] EncodeNewCardBytes(string destinationPath, byte[] rawCard)
+    {
+        if (!Path.GetExtension(destinationPath).Equals(".gme", StringComparison.OrdinalIgnoreCase))
+            return rawCard.ToArray();
+
+        var header = BuildDexDriveHeader(rawCard);
+        var encoded = new byte[header.Length + rawCard.Length];
+        Buffer.BlockCopy(header, 0, encoded, 0, header.Length);
+        Buffer.BlockCopy(rawCard, 0, encoded, header.Length, rawCard.Length);
+        return encoded;
+    }
+
+    private static byte[] BuildDexDriveHeader(byte[] rawCard)
+    {
+        ValidateRawCard(rawCard, ".mcr");
+
+        const int headerSize = 0xF40;
+        var header = new byte[headerSize];
+        Encoding.ASCII.GetBytes("123-456-STD").CopyTo(header, 0);
+
+        // These fixed fields match the conventional DexDrive GME header used
+        // by established PS1 memory-card tools.
+        header[18] = 0x01;
+        header[20] = 0x01;
+        header[21] = 0x4D;
+
+        // Mirror each directory entry's allocation state and next-block value
+        // into the GME slot table. Comments remain empty unless an existing
+        // GME header is being preserved during in-place editing.
+        for (var slot = 0; slot < DirectoryEntries; slot++)
+        {
+            var directoryOffset = DirectoryOffset + slot * FrameSize;
+            header[22 + slot] = rawCard[directoryOffset];
+            header[38 + slot] = rawCard[directoryOffset + 8];
+        }
+
+        return header;
+    }
+
+    private static async Task<byte[]> EncodeCardBytesAsync(
+        string destinationPath,
+        byte[] rawCard,
+        CancellationToken cancellationToken)
+    {
+        if (!Path.GetExtension(destinationPath).Equals(".gme", StringComparison.OrdinalIgnoreCase))
+            return rawCard;
+
+        var original = await File.ReadAllBytesAsync(
+            destinationPath,
+            cancellationToken);
+        var rawOffset = original.Length - CardSize;
+        if (original.Length >= 0xF40 + CardSize &&
+            original[0xF40] == 0x4D && original[0xF41] == 0x43)
+        {
+            rawOffset = 0xF40;
+        }
+
+        if (rawOffset < 0)
+            throw new InvalidDataException("The existing DexDrive GME header is invalid.");
+
+        var encoded = new byte[rawOffset + CardSize];
+        Buffer.BlockCopy(original, 0, encoded, 0, rawOffset);
+        Buffer.BlockCopy(rawCard, 0, encoded, rawOffset, CardSize);
+        return encoded;
+    }
+
     private static void ValidateRawCard(
         byte[] bytes,
         string path)
     {
-        if (!RawExtensions.Contains(Path.GetExtension(path)))
+        if (!ReadableCardExtensions.Contains(Path.GetExtension(path)))
             throw new NotSupportedException(
-                "This PS1 foundation currently supports MCR, SRM, BIN, MCD, and MC.");
+                "This PS1 engine supports MCR, SRM, BIN, MCD, MC, GME, and VM1 cards.");
 
         if (bytes.Length != CardSize)
             throw new InvalidDataException(
@@ -888,14 +1090,22 @@ public sealed class Ps1MemoryCardService
 
         try
         {
-            await File.WriteAllBytesAsync(
-                temporary,
+            var encoded = await EncodeCardBytesAsync(
+                destinationPath,
                 bytes,
                 cancellationToken);
 
-            var verification = await File.ReadAllBytesAsync(
+            await File.WriteAllBytesAsync(
+                temporary,
+                encoded,
+                cancellationToken);
+
+            var verificationFile = await File.ReadAllBytesAsync(
                 temporary,
                 cancellationToken);
+            var verification = DecodeCardBytes(
+                verificationFile,
+                destinationPath);
 
             ValidateRawCard(verification, destinationPath);
 
@@ -1171,6 +1381,8 @@ public sealed class Ps1MemoryCardService
             ".bin" => "pSX / AdriPSX",
             ".mcd" => "Bleem!",
             ".mc" => "PSXGame Edit",
+            ".gme" => "DexDrive",
+            ".vm1" => "PS3 Virtual Memory Card",
             _ => "Raw PS1 memory card"
         };
 

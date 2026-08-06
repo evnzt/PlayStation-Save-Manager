@@ -14,6 +14,10 @@ and launches PSM.
 
 Afterward, Launch.cmd opens the existing published application.
 
+or
+
+PlayStation Save Manager.exe in the Publish folder
+
 -RELEASE BUILD-
 
 Build-Release.cmd creates the self-contained application inside

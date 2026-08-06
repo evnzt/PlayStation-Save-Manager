@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:conv="clr-namespace:PlayStationSaveManager.Converters"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        Title="PlayStation Save Manager v1.0.0" Height="980" Width="1560"
+        Title="PlayStation Save Manager v1.0.1" Height="980" Width="1560"
         MinHeight="780" MinWidth="1220" WindowStartupLocation="CenterScreen"
         WindowStyle="None" ResizeMode="CanResize" Background="#070B10"
         Foreground="#F4F7FB" AllowDrop="True"
@@ -759,7 +759,7 @@
                             Margin="11,0,0,0">
                     <Image Source="app-icon-preview.png" Width="17" Height="17"
                            Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/>
-                    <TextBlock Text="PlayStation Save Manager v1.0.0"
+                    <TextBlock Text="PlayStation Save Manager v1.0.1"
                                Foreground="#DDE6F2"
                                FontSize="12"
                                VerticalAlignment="Center"/>
@@ -1002,7 +1002,7 @@
                             <WrapPanel Grid.Row="6" HorizontalAlignment="Left" Margin="-4,0,0,0">
                                 <Button Click="OpenA_Click"><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Image Source="{StaticResource IconDrive}" Style="{StaticResource ButtonIcon}"/><TextBlock Text="Browse / Change Card" VerticalAlignment="Center"/></StackPanel></Button>
                                 <Button Click="CloseA_Click"><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Image Source="{StaticResource IconUninstall}" Style="{StaticResource ButtonIcon}"/><TextBlock Text="Close Card" VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button x:Name="ExportAButton" Click="ExportA_Click" IsEnabled="False"><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Image Source="{StaticResource IconUpload}" Style="{StaticResource ButtonIcon}"/><TextBlock Text="Export PSU" VerticalAlignment="Center"/></StackPanel></Button>
+                                <Button x:Name="ExportAButton" Click="ExportA_Click" IsEnabled="False"><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Image Source="{StaticResource IconUpload}" Style="{StaticResource ButtonIcon}"/><TextBlock Text="Export Save" VerticalAlignment="Center"/></StackPanel></Button>
                                 <Button x:Name="DeleteAButton" Click="DeleteA_Click" IsEnabled="False"><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Image Source="{StaticResource IconDeleteSave}" Style="{StaticResource ButtonIcon}"/><TextBlock Text="Delete Save" VerticalAlignment="Center"/></StackPanel></Button>
                                 <Button x:Name="AddLibraryAButton" Click="AddLibraryA_Click" IsEnabled="False"><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Image Source="{StaticResource IconArchive}" Style="{StaticResource ButtonIcon}"/><TextBlock Text="Add to Library" VerticalAlignment="Center"/></StackPanel></Button>
                                 <Button x:Name="BackupAButton" Click="BackupA_Click" IsEnabled="False"><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Image Source="{StaticResource IconSave}" Style="{StaticResource ButtonIcon}"/><TextBlock Text="Backup" VerticalAlignment="Center"/></StackPanel></Button>
@@ -1265,7 +1265,7 @@
                             <WrapPanel Grid.Row="6" HorizontalAlignment="Left" Margin="-4,0,0,0">
                                 <Button Click="OpenB_Click"><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Image Source="{StaticResource IconDrive}" Style="{StaticResource ButtonIcon}"/><TextBlock Text="Browse / Change Card" VerticalAlignment="Center"/></StackPanel></Button>
                                 <Button Click="CloseB_Click"><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Image Source="{StaticResource IconUninstall}" Style="{StaticResource ButtonIcon}"/><TextBlock Text="Close Card" VerticalAlignment="Center"/></StackPanel></Button>
-                                <Button x:Name="ExportBButton" Click="ExportB_Click" IsEnabled="False"><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Image Source="{StaticResource IconUpload}" Style="{StaticResource ButtonIcon}"/><TextBlock Text="Export PSU" VerticalAlignment="Center"/></StackPanel></Button>
+                                <Button x:Name="ExportBButton" Click="ExportB_Click" IsEnabled="False"><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Image Source="{StaticResource IconUpload}" Style="{StaticResource ButtonIcon}"/><TextBlock Text="Export Save" VerticalAlignment="Center"/></StackPanel></Button>
                                 <Button x:Name="DeleteBButton" Click="DeleteB_Click" IsEnabled="False"><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Image Source="{StaticResource IconDeleteSave}" Style="{StaticResource ButtonIcon}"/><TextBlock Text="Delete Save" VerticalAlignment="Center"/></StackPanel></Button>
                                 <Button x:Name="AddLibraryBButton" Click="AddLibraryB_Click" IsEnabled="False"><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Image Source="{StaticResource IconArchive}" Style="{StaticResource ButtonIcon}"/><TextBlock Text="Add to Library" VerticalAlignment="Center"/></StackPanel></Button>
                                 <Button x:Name="BackupBButton" Click="BackupB_Click" IsEnabled="False"><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Image Source="{StaticResource IconSave}" Style="{StaticResource ButtonIcon}"/><TextBlock Text="Backup" VerticalAlignment="Center"/></StackPanel></Button>
@@ -2844,7 +2844,7 @@
                                     <TextBlock Text="Supported Input Formats" FontWeight="SemiBold" Margin="0,0,0,7"/>
                                     <TextBlock Text=".PSU  •  .MAX  •  .CBS  •  .XPS  •  .SPS  •  .PSV  •  .NPO  •  .P2M  •  .MC2  •  .PS2  •  .MCR  •  .SRM  •  .BIN  •  .MCD  •  .MC  •  .GME  •  .MEM  •  .VGS  •  .DDF  •  .PS  •  .PSM  •  .MCI  •  .VMP  •  .VM1"
                                                Foreground="#AFC1D7" TextWrapping="Wrap"/>
-                                    <TextBlock Text="Verified output adapters write PSU, MAX, MC2, PS2, MCR, SRM, BIN, MCD, and MC. Additional legacy wrappers are recognized but not yet writable."
+                                    <TextBlock Text="Verified output adapters write PSU, MAX, MC2, PS2, MCR, SRM, BIN, MCD, MC, GME, and VM1. Additional legacy wrappers are recognized but not yet writable."
                                                Foreground="#7F93AA" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
                                 </StackPanel>
                             </Border>

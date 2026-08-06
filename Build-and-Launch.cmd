@@ -22,17 +22,15 @@ if not exist "%DOTNET%" (
 if exist "%PUBLISH%" rmdir /s /q "%PUBLISH%"
 mkdir "%PUBLISH%" >nul 2>&1
 
-echo Building PlayStation Save Manager v1.0.0...
+echo Building PlayStation Save Manager v1.0.1...
 "%DOTNET%" publish "%PROJECT%" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -p:DebugSymbols=false -o "%PUBLISH%"
 if errorlevel 1 goto :error
 
 copy /y "%CD%\Setup-Engine.ps1" "%PUBLISH%\Setup-Engine.ps1" >nul
-copy /y "%CD%\README.txt" "%PUBLISH%\README.txt" >nul
-copy /y "%CD%\THIRD-PARTY-NOTICES.txt" "%PUBLISH%\THIRD-PARTY-NOTICES.txt" >nul
 
 echo.
 echo Build complete.
-echo Launching PlayStation Save Manager v1.0.0...
+echo Launching PlayStation Save Manager v1.0.1...
 start "" "%PUBLISH%\PlayStation Save Manager.exe"
 exit /b 0
 

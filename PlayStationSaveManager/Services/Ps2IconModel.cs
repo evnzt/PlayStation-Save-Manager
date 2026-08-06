@@ -113,25 +113,51 @@ public sealed class Ps2IconModel
         if ((textureType & 0x04) != 0 && stream.Position < stream.Length)
         {
             byte[] textureBytes;
-            if ((textureType & 0x08) != 0)
-            {
-                if (stream.Position + 4 > stream.Length)
-                    throw new InvalidDataException("Compressed icon texture is incomplete.");
-                var compressedSize = reader.ReadUInt32();
-                if (compressedSize > stream.Length - stream.Position)
-                    throw new InvalidDataException("Compressed icon texture is invalid.");
+            var remaining = stream.Length - stream.Position;
 
-                var compressed = reader.ReadBytes((int)compressedSize);
-                textureBytes = DecompressTexture(compressed);
+            // Some valid PS2 icons (including Final Fantasy X saves)
+            // report texture type 0x0C while storing a normal 32 KiB
+            // uncompressed texture. Detect the physical layout instead
+            // of assuming bit 0x08 always means compressed data.
+            if (remaining == 32768)
+            {
+                textureBytes = reader.ReadBytes(32768);
+            }
+            else if (remaining >= 4)
+            {
+                var textureStart = stream.Position;
+                var declaredCompressedSize = reader.ReadUInt32();
+                var availableAfterSize = stream.Length - stream.Position;
+
+                if (declaredCompressedSize > 0 &&
+                    declaredCompressedSize <= availableAfterSize)
+                {
+                    var compressed =
+                        reader.ReadBytes((int)declaredCompressedSize);
+                    textureBytes = DecompressTexture(compressed);
+                }
+                else
+                {
+                    // The first four texture bytes were not a valid
+                    // compressed-size field. Rewind and treat the data
+                    // as the standard raw 128x128 16-bit texture.
+                    stream.Position = textureStart;
+                    if (stream.Length - stream.Position < 32768)
+                        throw new InvalidDataException("Icon texture is incomplete.");
+                    textureBytes = reader.ReadBytes(32768);
+                }
             }
             else
             {
-                if (stream.Position + 32768 > stream.Length)
-                    throw new InvalidDataException("Icon texture is incomplete.");
-                textureBytes = reader.ReadBytes(32768);
+                throw new InvalidDataException("Icon texture is incomplete.");
             }
 
-            Buffer.BlockCopy(textureBytes, 0, texture, 0, Math.Min(textureBytes.Length, 32768));
+            Buffer.BlockCopy(
+                textureBytes,
+                0,
+                texture,
+                0,
+                Math.Min(textureBytes.Length, 32768));
         }
 
         return new Ps2IconModel
