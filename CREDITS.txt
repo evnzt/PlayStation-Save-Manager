@@ -2,7 +2,7 @@ PlayStation Save Manager v1.0.0
 -Credits-
 
 PlayStation Save Manager was created by
-Beamin
+evnzt
 
 Engineering assistance by
 OpenAI ChatGPT (Don't hate me. I cant code for $#!+)
@@ -23,6 +23,18 @@ OpenAI ChatGPT (Don't hate me. I cant code for $#!+)
   pack available through the Elgato Marketplace.
 
   https://marketplace.elgato.com/
+  
+• niemasd
+
+  Metadata from Niema's databases for games from various consoles.
+
+  https://github.com/niemasd/GameDB
+  
+• LaunchBox
+
+  Metadata from LaunchBox's databases for games from PS1 & PS2.
+
+  https://gamesdb.launchbox-app.com/
 
 Special thanks to the retro PlayStation community,
-PCSX2, MemCard PRO2, myMC++, PS2 Converter/Builder, and everyone preserving classic games.
+PCSX2, Duckstation, RetroArch, MemCard PRO2, myMC++, PS2 Converter/Builder, and everyone preserving classic games.

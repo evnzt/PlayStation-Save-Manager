@@ -114,50 +114,96 @@ public sealed class Ps2IconModel
         {
             byte[] textureBytes;
             var remaining = stream.Length - stream.Position;
+            var compressedTexture = (textureType & 0x08) != 0;
 
-            // Some valid PS2 icons (including Final Fantasy X saves)
-            // report texture type 0x0C while storing a normal 32 KiB
-            // uncompressed texture. Detect the physical layout instead
-            // of assuming bit 0x08 always means compressed data.
-            if (remaining == 32768)
-            {
-                textureBytes = reader.ReadBytes(32768);
-            }
-            else if (remaining >= 4)
+            if (compressedTexture)
             {
                 var textureStart = stream.Position;
-                var declaredCompressedSize = reader.ReadUInt32();
-                var availableAfterSize = stream.Length - stream.Position;
+                byte[]? decompressed = null;
+                var decompressedLength = 0;
 
-                if (declaredCompressedSize > 0 &&
-                    declaredCompressedSize <= availableAfterSize)
+                // Most compressed icons store a 32-bit compressed-size field.
+                // Some games, including Final Fantasy X, begin the RLE stream
+                // immediately and pad it to the end of the icon file instead.
+                if (remaining >= 4)
                 {
-                    var compressed =
-                        reader.ReadBytes((int)declaredCompressedSize);
-                    textureBytes = DecompressTexture(compressed);
+                    var declaredSize = reader.ReadUInt32();
+                    var availableAfterSize = stream.Length - stream.Position;
+
+                    if (declaredSize > 0 &&
+                        declaredSize <= availableAfterSize)
+                    {
+                        try
+                        {
+                            var compressed =
+                                reader.ReadBytes((int)declaredSize);
+                            decompressed =
+                                DecompressTexture(
+                                    compressed,
+                                    out decompressedLength);
+                        }
+                        catch (InvalidDataException)
+                        {
+                            decompressed = null;
+                        }
+                    }
                 }
-                else
+
+                if (decompressed is null)
                 {
-                    // The first four texture bytes were not a valid
-                    // compressed-size field. Rewind and treat the data
-                    // as the standard raw 128x128 16-bit texture.
                     stream.Position = textureStart;
-                    if (stream.Length - stream.Position < 32768)
-                        throw new InvalidDataException("Icon texture is incomplete.");
-                    textureBytes = reader.ReadBytes(32768);
+                    var compressed =
+                        reader.ReadBytes(
+                            checked((int)(stream.Length - stream.Position)));
+
+                    try
+                    {
+                        decompressed =
+                            DecompressTexture(
+                                compressed,
+                                out decompressedLength);
+                    }
+                    catch (InvalidDataException)
+                    {
+                        // A small number of icons incorrectly advertise the
+                        // compression flag while containing a normal raw texture.
+                        stream.Position = textureStart;
+                        if (stream.Length - stream.Position < 32768)
+                            throw;
+
+                        textureBytes = reader.ReadBytes(32768);
+                        Buffer.BlockCopy(
+                            textureBytes,
+                            0,
+                            texture,
+                            0,
+                            Math.Min(textureBytes.Length, 32768));
+                        decompressed = null;
+                    }
+                }
+
+                if (decompressed is not null)
+                {
+                    PlaceDecompressedTexture(
+                        decompressed,
+                        decompressedLength,
+                        normalUv,
+                        texture);
                 }
             }
             else
             {
-                throw new InvalidDataException("Icon texture is incomplete.");
-            }
+                if (remaining < 32768)
+                    throw new InvalidDataException("Icon texture is incomplete.");
 
-            Buffer.BlockCopy(
-                textureBytes,
-                0,
-                texture,
-                0,
-                Math.Min(textureBytes.Length, 32768));
+                textureBytes = reader.ReadBytes(32768);
+                Buffer.BlockCopy(
+                    textureBytes,
+                    0,
+                    texture,
+                    0,
+                    Math.Min(textureBytes.Length, 32768));
+            }
         }
 
         return new Ps2IconModel
@@ -178,7 +224,9 @@ public sealed class Ps2IconModel
         };
     }
 
-    private static byte[] DecompressTexture(byte[] compressed)
+    private static byte[] DecompressTexture(
+        byte[] compressed,
+        out int bytesWritten)
     {
         var output = new byte[32768];
         var source = 0;
@@ -192,18 +240,34 @@ public sealed class Ps2IconModel
             if ((code & 0x8000) != 0)
             {
                 var byteCount = (0x10000 - code) * 2;
-                if (source + byteCount > compressed.Length || target + byteCount > output.Length)
-                    throw new InvalidDataException("Invalid literal run in icon texture.");
-                Buffer.BlockCopy(compressed, source, output, target, byteCount);
+                if (source + byteCount > compressed.Length ||
+                    target + byteCount > output.Length)
+                {
+                    throw new InvalidDataException(
+                        "Invalid literal run in icon texture.");
+                }
+
+                Buffer.BlockCopy(
+                    compressed,
+                    source,
+                    output,
+                    target,
+                    byteCount);
                 source += byteCount;
                 target += byteCount;
             }
             else
             {
                 var repetitions = code;
-                if (repetitions == 0) continue;
-                if (source + 2 > compressed.Length || target + repetitions * 2 > output.Length)
-                    throw new InvalidDataException("Invalid repeated run in icon texture.");
+                if (repetitions == 0)
+                    continue;
+
+                if (source + 2 > compressed.Length ||
+                    target + repetitions * 2 > output.Length)
+                {
+                    throw new InvalidDataException(
+                        "Invalid repeated run in icon texture.");
+                }
 
                 var lo = compressed[source++];
                 var hi = compressed[source++];
@@ -215,7 +279,62 @@ public sealed class Ps2IconModel
             }
         }
 
+        if (target == 0)
+            throw new InvalidDataException("Compressed icon texture is empty.");
+
+        bytesWritten = target;
         return output;
+    }
+
+    private static void PlaceDecompressedTexture(
+        byte[] decompressed,
+        int decompressedLength,
+        short[] normalUv,
+        ushort[] destination)
+    {
+        var destinationBytes = new byte[32768];
+        var targetOffset = 0;
+
+        // Some icons compress only the texture rows actually referenced by
+        // their UV coordinates. FFX expands to 128x64 pixels and maps those
+        // pixels to V=0.5..1.0, so the decoded rows belong in the lower half
+        // of the full 128x128 texture rather than at row zero.
+        if (decompressedLength > 0 &&
+            decompressedLength < destinationBytes.Length &&
+            normalUv.Length >= 5)
+        {
+            var minimumV = short.MaxValue;
+            for (var index = 4; index < normalUv.Length; index += 5)
+                minimumV = Math.Min(minimumV, normalUv[index]);
+
+            var firstRow = Math.Clamp(
+                (int)Math.Round(minimumV / 4096.0 * 128.0),
+                0,
+                127);
+            var candidateOffset = firstRow * 128 * 2;
+
+            if (candidateOffset + decompressedLength <=
+                destinationBytes.Length)
+            {
+                targetOffset = candidateOffset;
+            }
+        }
+
+        Buffer.BlockCopy(
+            decompressed,
+            0,
+            destinationBytes,
+            targetOffset,
+            Math.Min(
+                decompressedLength,
+                destinationBytes.Length - targetOffset));
+
+        Buffer.BlockCopy(
+            destinationBytes,
+            0,
+            destination,
+            0,
+            destinationBytes.Length);
     }
 
     public BitmapSource Render(
