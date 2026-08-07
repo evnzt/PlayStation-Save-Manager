@@ -103,7 +103,7 @@ The application can manage and convert between:
 
 ---
 
-<img width="1560" height="980" alt="screenshot" src="https://github.com/user-attachments/assets/c7035752-3864-4d2b-bbad-cc5d5ef04f8b" />
+<img width="1560" height="980" alt="PSM Screenshot" src="https://github.com/user-attachments/assets/2e722ba7-0ae3-4daf-8a8e-4d3261e06352" />
 
 ---
 
