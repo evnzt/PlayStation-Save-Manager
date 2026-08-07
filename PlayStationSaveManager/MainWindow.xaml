@@ -612,6 +612,18 @@
             <Setter Property="BorderBrush" Value="#25354A"/><Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="12,9"/><Setter Property="CaretBrush" Value="White"/>
         </Style>
+        <Style x:Key="SelectableDisplayText" TargetType="TextBox">
+            <Setter Property="IsReadOnly" Value="True"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="CaretBrush" Value="#55A9FF"/>
+            <Setter Property="SelectionBrush" Value="#2B78D0"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
         <Style TargetType="ComboBox"><Setter Property="Background" Value="#121C29"/><Setter Property="Foreground" Value="White"/><Setter Property="BorderBrush" Value="#2B3B50"/><Setter Property="Padding" Value="8"/></Style>
         <Style TargetType="ListView">
             <Setter Property="Background" Value="#090F16"/><Setter Property="Foreground" Value="White"/>
@@ -1818,7 +1830,7 @@
                 </Grid>
             </TabItem>
 
-            <TabItem x:Name="SaveLibraryTab">
+            <TabItem x:Name="SaveLibraryTab" ToolTip="Text values in this tab can be selected and copied.">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
                         <Image Source="{StaticResource IconLibraryBox}" Style="{StaticResource TabIcon}"/>
@@ -2131,16 +2143,18 @@
                                     <StackPanel Grid.Column="1"
                                                 Margin="12,0,0,0"
                                                 VerticalAlignment="Center">
-                                        <TextBlock x:Name="LibraryMetaTitle"
+                                        <TextBox x:Name="LibraryMetaTitle"
                                                    Text="Select a save"
                                                    FontSize="20"
                                                    FontWeight="SemiBold"
-                                                   TextWrapping="Wrap"/>
-                                        <TextBlock x:Name="LibraryMetaProfile"
+                                                   TextWrapping="Wrap"
+                                                   Style="{StaticResource SelectableDisplayText}"/>
+                                        <TextBox x:Name="LibraryMetaProfile"
                                                    Text="Metadata appears here."
                                                    Foreground="#9FB0C5"
                                                    Margin="0,4,0,0"
-                                                   TextWrapping="Wrap"/>
+                                                   TextWrapping="Wrap"
+                                                   Style="{StaticResource SelectableDisplayText}"/>
                                     </StackPanel>
                                 </Grid>
                             </Border>
@@ -2168,99 +2182,108 @@
 
                                 <TextBlock Text="Directory ID"
                                            Foreground="#7F93AA"/>
-                                <TextBlock x:Name="LibraryMetaDirectory"
+                                <TextBox x:Name="LibraryMetaDirectory"
                                            Grid.Column="1"
                                            Text="—"
-                                           TextWrapping="Wrap"/>
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                 <TextBlock x:Name="LibraryMetaSerialLabel"
                                            Grid.Row="1"
                                            Text="Game Serial"
                                            Foreground="#7F93AA"
                                            Margin="0,8,0,0"/>
-                                <TextBlock x:Name="LibraryMetaSerial"
+                                <TextBox x:Name="LibraryMetaSerial"
                                            Grid.Row="1"
                                            Grid.Column="1"
                                            Text="—"
                                            Margin="0,8,0,0"
-                                           TextWrapping="Wrap"/>
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                 <TextBlock Grid.Row="2"
                                            Text="Format"
                                            Foreground="#7F93AA"
                                            Margin="0,8,0,0"/>
-                                <TextBlock x:Name="LibraryMetaFormat"
+                                <TextBox x:Name="LibraryMetaFormat"
                                            Grid.Row="2"
                                            Grid.Column="1"
                                            Text="—"
                                            Margin="0,8,0,0"
-                                           TextWrapping="Wrap"/>
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                 <TextBlock Grid.Row="3"
                                            Text="Size"
                                            Foreground="#7F93AA"
                                            Margin="0,8,0,0"/>
-                                <TextBlock x:Name="LibraryMetaSize"
+                                <TextBox x:Name="LibraryMetaSize"
                                            Grid.Row="3"
                                            Grid.Column="1"
                                            Text="—"
-                                           Margin="0,8,0,0"/>
+                                           Margin="0,8,0,0"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                 <TextBlock Grid.Row="4"
                                            Text="Added"
                                            Foreground="#7F93AA"
                                            Margin="0,8,0,0"/>
-                                <TextBlock x:Name="LibraryMetaAdded"
+                                <TextBox x:Name="LibraryMetaAdded"
                                            Grid.Row="4"
                                            Grid.Column="1"
                                            Text="—"
-                                           Margin="0,8,0,0"/>
+                                           Margin="0,8,0,0"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                 <TextBlock Grid.Row="5"
                                            Text="Modified"
                                            Foreground="#7F93AA"
                                            Margin="0,8,0,0"/>
-                                <TextBlock x:Name="LibraryMetaModified"
+                                <TextBox x:Name="LibraryMetaModified"
                                            Grid.Row="5"
                                            Grid.Column="1"
                                            Text="—"
-                                           Margin="0,8,0,0"/>
+                                           Margin="0,8,0,0"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                 <TextBlock x:Name="LibraryMetaCrc32Label"
                                            Grid.Row="6"
                                            Text="CRC32"
                                            Foreground="#7F93AA"
                                            Margin="0,8,0,0"/>
-                                <TextBlock x:Name="LibraryMetaCrc32"
+                                <TextBox x:Name="LibraryMetaCrc32"
                                            Grid.Row="6"
                                            Grid.Column="1"
                                            Text="—"
                                            Margin="0,8,0,0"
-                                           FontFamily="Consolas"/>
+                                           FontFamily="Consolas"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                 <TextBlock x:Name="LibraryMetaHashLabel"
                                            Grid.Row="7"
                                            Text="SHA-256"
                                            Foreground="#7F93AA"
                                            Margin="0,8,0,0"/>
-                                <TextBlock x:Name="LibraryMetaHash"
+                                <TextBox x:Name="LibraryMetaHash"
                                            Grid.Row="7"
                                            Grid.Column="1"
                                            Text="—"
                                            Margin="0,8,0,0"
                                            FontFamily="Consolas"
                                            FontSize="10"
-                                           TextWrapping="Wrap"/>
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource SelectableDisplayText}"/>
                             </Grid>
 
                             <StackPanel Grid.Row="4" Margin="0,18,0,0">
                                 <TextBlock Text="Duplicate Status"
                                            FontWeight="SemiBold"/>
-                                <TextBlock x:Name="LibraryDuplicateStatus"
+                                <TextBox x:Name="LibraryDuplicateStatus"
                                            Text="—"
                                            Foreground="#9FB0C5"
                                            TextWrapping="Wrap"
-                                           Margin="0,5,0,0"/>
+                                           Margin="0,5,0,0"
+                                           Style="{StaticResource SelectableDisplayText}"/>
                             </StackPanel>
 
                             <WrapPanel Grid.Row="5" Margin="0,18,0,0">
@@ -2311,7 +2334,7 @@
                 </Grid>
             </TabItem>
 
-            <TabItem x:Name="SaveInformationTab">
+            <TabItem x:Name="SaveInformationTab" ToolTip="Text values in this tab can be selected and copied.">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
                         <Image Source="{StaticResource IconNewsletter}"
@@ -2369,17 +2392,19 @@
                             </Border>
 
                             <StackPanel Grid.Row="3" Margin="0,20,0,0">
-                                <TextBlock x:Name="SaveInfoTitle"
+                                <TextBox x:Name="SaveInfoTitle"
                                            Text="No save selected"
                                            FontSize="24"
                                            FontWeight="SemiBold"
-                                           TextWrapping="Wrap"/>
-                                <TextBlock x:Name="SaveInfoProfile"
+                                           TextWrapping="Wrap"
+                                           Style="{StaticResource SelectableDisplayText}"/>
+                                <TextBox x:Name="SaveInfoProfile"
                                            Text="Select a Save Library entry and choose Save Information."
                                            Foreground="#9FB0C5"
                                            FontSize="14"
                                            TextWrapping="Wrap"
-                                           Margin="0,5,0,0"/>
+                                           Margin="0,5,0,0"
+                                           Style="{StaticResource SelectableDisplayText}"/>
                                 <Button Content="Return to Save Library"
                                         HorizontalAlignment="Left"
                                         Margin="0,22,0,0"
@@ -2415,30 +2440,38 @@
                                         </Grid.RowDefinitions>
 
                                         <TextBlock Text="Directory ID" Foreground="#7F93AA"/>
-                                        <TextBlock x:Name="SaveInfoDirectory" Grid.Column="1" Text="—" TextWrapping="Wrap"/>
+                                        <TextBox x:Name="SaveInfoDirectory" Grid.Column="1" Text="—" TextWrapping="Wrap"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                         <TextBlock Grid.Row="1" Text="Package Format" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="SaveInfoFormat" Grid.Row="1" Grid.Column="1" Text="—" Margin="0,8,0,0"/>
+                                        <TextBox x:Name="SaveInfoFormat" Grid.Row="1" Grid.Column="1" Text="—" Margin="0,8,0,0"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                         <TextBlock Grid.Row="2" Text="Size" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="SaveInfoSize" Grid.Row="2" Grid.Column="1" Text="—" Margin="0,8,0,0"/>
+                                        <TextBox x:Name="SaveInfoSize" Grid.Row="2" Grid.Column="1" Text="—" Margin="0,8,0,0"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                         <TextBlock Grid.Row="3" Text="Added" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="SaveInfoAdded" Grid.Row="3" Grid.Column="1" Text="—" Margin="0,8,0,0"/>
+                                        <TextBox x:Name="SaveInfoAdded" Grid.Row="3" Grid.Column="1" Text="—" Margin="0,8,0,0"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                         <TextBlock Grid.Row="4" Text="Modified" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="SaveInfoModified" Grid.Row="4" Grid.Column="1" Text="—" Margin="0,8,0,0"/>
+                                        <TextBox x:Name="SaveInfoModified" Grid.Row="4" Grid.Column="1" Text="—" Margin="0,8,0,0"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                         <TextBlock Grid.Row="5" Text="CRC32" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="SaveInfoCrc32" Grid.Row="5" Grid.Column="1" Text="—" Margin="0,8,0,0" FontFamily="Consolas"/>
+                                        <TextBox x:Name="SaveInfoCrc32" Grid.Row="5" Grid.Column="1" Text="—" Margin="0,8,0,0" FontFamily="Consolas"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                         <TextBlock Grid.Row="6" Text="SHA-256" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="SaveInfoSha256" Grid.Row="6" Grid.Column="1" Text="—" Margin="0,8,0,0"
-                                                   FontFamily="Consolas" FontSize="10" TextWrapping="Wrap"/>
+                                        <TextBox x:Name="SaveInfoSha256" Grid.Row="6" Grid.Column="1" Text="—" Margin="0,8,0,0"
+                                                   FontFamily="Consolas" FontSize="10" TextWrapping="Wrap"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                         <TextBlock Grid.Row="7" Text="Duplicate Status" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="SaveInfoDuplicate" Grid.Row="7" Grid.Column="1" Text="—" Margin="0,8,0,0"
-                                                   TextWrapping="Wrap"/>
+                                        <TextBox x:Name="SaveInfoDuplicate" Grid.Row="7" Grid.Column="1" Text="—" Margin="0,8,0,0"
+                                                   TextWrapping="Wrap"
+                                           Style="{StaticResource SelectableDisplayText}"/>
                                     </Grid>
                                 </StackPanel>
                             </Border>
@@ -2466,31 +2499,38 @@
                                         </Grid.RowDefinitions>
 
                                         <TextBlock Text="Game Serial" Foreground="#7F93AA"/>
-                                        <TextBlock x:Name="SaveInfoSerial" Grid.Column="1" Text="—"/>
+                                        <TextBox x:Name="SaveInfoSerial" Grid.Column="1" Text="—"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                         <TextBlock Grid.Row="1" Text="Region" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="SaveInfoRegion" Grid.Row="1" Grid.Column="1" Text="—" Margin="0,8,0,0"/>
+                                        <TextBox x:Name="SaveInfoRegion" Grid.Row="1" Grid.Column="1" Text="—" Margin="0,8,0,0"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                         <TextBlock Grid.Row="2" Text="Release Date" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="SaveInfoReleaseDate" Grid.Row="2" Grid.Column="1"
-                                                   Text="Not available yet" Foreground="#9FB0C5" Margin="0,8,0,0"/>
+                                        <TextBox x:Name="SaveInfoReleaseDate" Grid.Row="2" Grid.Column="1"
+                                                   Text="Not available yet" Foreground="#9FB0C5" Margin="0,8,0,0"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                         <TextBlock Grid.Row="3" Text="Developer" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="SaveInfoDeveloper" Grid.Row="3" Grid.Column="1"
-                                                   Text="Not available yet" Foreground="#9FB0C5" Margin="0,8,0,0"/>
+                                        <TextBox x:Name="SaveInfoDeveloper" Grid.Row="3" Grid.Column="1"
+                                                   Text="Not available yet" Foreground="#9FB0C5" Margin="0,8,0,0"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                         <TextBlock Grid.Row="4" Text="Publisher" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="SaveInfoPublisher" Grid.Row="4" Grid.Column="1"
-                                                   Text="Not available yet" Foreground="#9FB0C5" Margin="0,8,0,0"/>
+                                        <TextBox x:Name="SaveInfoPublisher" Grid.Row="4" Grid.Column="1"
+                                                   Text="Not available yet" Foreground="#9FB0C5" Margin="0,8,0,0"
+                                           Style="{StaticResource SelectableDisplayText}"/>
                                         <TextBlock Grid.Row="5" Text="Metadata Source" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="SaveInfoMetadataSource" Grid.Row="5" Grid.Column="1"
+                                        <TextBox x:Name="SaveInfoMetadataSource" Grid.Row="5" Grid.Column="1"
                                                    Text="No database loaded" Foreground="#9FB0C5" Margin="0,8,0,0"
-                                                   TextWrapping="Wrap"/>
+                                                   TextWrapping="Wrap"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                         <TextBlock Grid.Row="6" Text="Verification" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="SaveInfoVerification" Grid.Row="6" Grid.Column="1"
+                                        <TextBox x:Name="SaveInfoVerification" Grid.Row="6" Grid.Column="1"
                                                    Text="—" Foreground="#9FB0C5" Margin="0,8,0,0"
-                                                   TextWrapping="Wrap"/>
+                                                   TextWrapping="Wrap"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                         <TextBlock Grid.Row="7" Text="Database Status" Foreground="#7F93AA" Margin="0,8,0,0"/>
                                         <StackPanel Grid.Row="7" Grid.Column="1" Margin="0,8,0,0">
@@ -2542,13 +2582,15 @@
                                         </Grid.RowDefinitions>
 
                                         <TextBlock Text="Play Time" Foreground="#7F93AA"/>
-                                        <TextBlock x:Name="SaveInfoPlayTime" Grid.Column="1"
-                                                   Text="Not supported for this title" Foreground="#9FB0C5"/>
+                                        <TextBox x:Name="SaveInfoPlayTime" Grid.Column="1"
+                                                   Text="Not supported for this title" Foreground="#9FB0C5"
+                                           Style="{StaticResource SelectableDisplayText}"/>
 
                                         <TextBlock Grid.Row="1" Text="Game-Specific Data" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBlock x:Name="SaveInfoParserStatus" Grid.Row="1" Grid.Column="1"
+                                        <TextBox x:Name="SaveInfoParserStatus" Grid.Row="1" Grid.Column="1"
                                                    Text="No parser is available yet." Foreground="#9FB0C5"
-                                                   Margin="0,8,0,0" TextWrapping="Wrap"/>
+                                                   Margin="0,8,0,0" TextWrapping="Wrap"
+                                           Style="{StaticResource SelectableDisplayText}"/>
                                     </Grid>
                                     <TextBlock Text="Future game-specific parsers can add completion, money, cars, garage contents, difficulty, chapters, and other supported values here."
                                                Foreground="#71869F"
@@ -2904,7 +2946,7 @@
 
                         <TextBlock Text="Special Thanks" FontSize="17" FontWeight="SemiBold"
                                    HorizontalAlignment="Center" Margin="0,0,0,10"/>
-                        <TextBlock Text="Special thanks to the developers of myMC++, mymc, MemcardRex, PS2 Save Builder, and PS2 Save Converter."
+                        <TextBlock Text="Special thanks to the developers of myMC/myMC++, MemcardRex, PS2 Save Builder/Converter, MemCard PRO2, PCSX2, DuckStation, RetroArch, and AetherSX2/NetherSX2."
                                    Foreground="#B7C5D7" FontSize="14" TextWrapping="Wrap"
                                    TextAlignment="Center" HorizontalAlignment="Center" MaxWidth="680" LineHeight="22"/>
                     </StackPanel>

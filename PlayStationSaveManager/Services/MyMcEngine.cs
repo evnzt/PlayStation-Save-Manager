@@ -1062,10 +1062,23 @@ public sealed class MyMcEngine
         return new EngineResult(process.ExitCode, await outputTask, await errorTask);
     }
 
+    public Task CreateCardAsync(
+        string destinationPath,
+        CancellationToken cancellationToken = default) =>
+        CreateCardAsync(destinationPath, 8, cancellationToken);
+
     public async Task CreateCardAsync(
         string destinationPath,
+        int sizeMegabytes,
         CancellationToken cancellationToken = default)
     {
+        if (sizeMegabytes is not (8 or 16 or 32 or 64))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sizeMegabytes),
+                "PS2 memory card size must be 8, 16, 32, or 64 MB.");
+        }
+
         if (File.Exists(destinationPath))
             throw new IOException("A file already exists at the selected location.");
 
@@ -1073,12 +1086,16 @@ public sealed class MyMcEngine
         if (!string.IsNullOrWhiteSpace(directory))
             Directory.CreateDirectory(directory);
 
+        // myMC++ formats cards by cluster count. PS2 clusters are 1 KiB,
+        // so 8/16/32/64 MB map directly to 8192/16384/32768/65536 clusters.
+        var clusters = checked(sizeMegabytes * 1024);
+
         try
         {
             var result = await RunAsync(
                 destinationPath,
-                ["format"],
-                TimeSpan.FromSeconds(90),
+                ["format", "-c", clusters.ToString()],
+                TimeSpan.FromSeconds(180),
                 cancellationToken);
 
             EnsureSuccess(

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -48,6 +48,7 @@ public partial class MainWindow : Window
     private readonly Ps2IconService _iconService;
     private readonly DispatcherTimer _iconAnimationTimer;
     private readonly Stopwatch _iconAnimationClock = Stopwatch.StartNew();
+    private const double Ps2IconFrontRotation = Math.PI - 0.32;
     private readonly ObservableCollection<SaveEntry> _allA = [];
     private readonly ObservableCollection<SaveEntry> _allB = [];
     private Ps2IconModel? _previewModelA;
@@ -60,6 +61,9 @@ public partial class MainWindow : Window
     private SaveLibraryEntry? _saveInformationEntry;
     private bool _previewRenderA;
     private bool _previewRenderB;
+    private double _previewRotationStartA;
+    private double _previewRotationStartB;
+    private double _libraryPreviewRotationStart;
     private string? _pathA;
     private string? _pathB;
     private string? _ps1PathA;
@@ -158,6 +162,8 @@ public partial class MainWindow : Window
         LibrarySortField.FavoritesFirst;
 
     private bool _librarySortDescending;
+    private bool _saveLibraryIconsStarted;
+    private bool _saveLibraryLoaded;
 
     public MainWindow()
     {
@@ -186,7 +192,10 @@ public partial class MainWindow : Window
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         if (_engine.IsInstalled)
+        {
+            StartSaveLibraryIconLoading();
             return;
+        }
 
         var setup = Path.Combine(AppContext.BaseDirectory, "Setup-Engine.ps1");
         if (!File.Exists(setup))
@@ -218,6 +227,7 @@ public partial class MainWindow : Window
                 throw new InvalidOperationException("Engine setup did not complete. Check engine-setup-error.log.");
             Log("Private myMC++ engine setup completed.");
             StatusText.Text = "Engine ready.";
+            StartSaveLibraryIconLoading();
         }
         catch (Exception ex)
         {
@@ -767,8 +777,8 @@ public partial class MainWindow : Window
             new Window
             {
                 Title = windowTitle,
-                Width = 570,
-                Height = choices.Count > 1 ? 255 : 225,
+                Width = choices.Count >= 4 ? 620 : 570,
+                Height = choices.Count >= 4 ? 355 : (choices.Count > 1 ? 255 : 225),
                 ResizeMode = ResizeMode.NoResize,
                 WindowStartupLocation =
                     WindowStartupLocation.CenterOwner,
@@ -823,13 +833,14 @@ public partial class MainWindow : Window
         root.Children.Add(heading);
 
         var choicesPanel =
-            new StackPanel
+            new WrapPanel
             {
                 Orientation = Orientation.Horizontal,
                 HorizontalAlignment =
                     HorizontalAlignment.Center,
                 VerticalAlignment =
-                    VerticalAlignment.Center
+                    VerticalAlignment.Center,
+                Width = choices.Count >= 4 ? 520 : double.NaN
             };
 
         foreach (var choice in choices)
@@ -837,7 +848,7 @@ public partial class MainWindow : Window
             var button =
                 new Button
                 {
-                    Width = choices.Count > 1 ? 235 : 300,
+                    Width = choices.Count >= 4 ? 245 : (choices.Count > 1 ? 235 : 300),
                     Height = 70,
                     Margin = new Thickness(6),
                     Padding = new Thickness(12, 8, 12, 8),
@@ -884,7 +895,7 @@ public partial class MainWindow : Window
                         new SolidColorBrush(
                             Color.FromRgb(159, 176, 197)),
                     TextWrapping = TextWrapping.Wrap,
-                    MaxWidth = choices.Count > 1 ? 180 : 240,
+                    MaxWidth = choices.Count >= 4 ? 190 : (choices.Count > 1 ? 180 : 240),
                     Margin = new Thickness(0, 3, 0, 0)
                 });
 
@@ -975,7 +986,7 @@ public partial class MainWindow : Window
                     new CardChoice(
                         FindResource("IconStandardPs2Card") as ImageSource,
                         "Standard PS2 Memory Card",
-                        "Creates a formatted 8 MB .ps2 memory card.",
+                        "Create a .ps2 or .mc2 card in 8, 16, 32, or 64 MB.",
                         1),
                     new CardChoice(
                         FindResource("IconPcsx2FolderCard") as ImageSource,
@@ -985,22 +996,88 @@ public partial class MainWindow : Window
                 });
 
         if (choice == 1)
-            await CreateNewPs2FileCardAsync(sideText[0]);
+        {
+            var format =
+                ShowNewCardTypeDialog(
+                    "SELECT PS2 CARD FORMAT",
+                    "Choose the file format for the new memory card.",
+                    new[]
+                    {
+                        new CardChoice(
+                            FindResource("IconStandardPs2Card") as ImageSource,
+                            "PCSX2 (.ps2)",
+                            "Create a standard PCSX2 memory-card image.",
+                            1),
+                        new CardChoice(
+                            FindResource("IconStandardPs2Card") as ImageSource,
+                            "MemCard PRO2 (.mc2)",
+                            "Create a MemCard PRO2-compatible memory-card image.",
+                            2)
+                    },
+                    "PS2 Memory Card Format");
+
+            if (format == 0)
+                return;
+
+            var sizeMb =
+                ShowNewCardTypeDialog(
+                    "SELECT PS2 CARD SIZE",
+                    $"Choose the capacity for the new {(format == 2 ? ".mc2" : ".ps2")} memory card. 8 MB offers the widest game compatibility.",
+                    new[]
+                    {
+                        new CardChoice(
+                            FindResource("IconStandardPs2Card") as ImageSource,
+                            "8 MB",
+                            "Standard PS2 capacity. Recommended for maximum compatibility.",
+                            8),
+                        new CardChoice(
+                            FindResource("IconStandardPs2Card") as ImageSource,
+                            "16 MB",
+                            "Extended-capacity PS2 memory card.",
+                            16),
+                        new CardChoice(
+                            FindResource("IconStandardPs2Card") as ImageSource,
+                            "32 MB",
+                            "Extended-capacity PS2 memory card.",
+                            32),
+                        new CardChoice(
+                            FindResource("IconStandardPs2Card") as ImageSource,
+                            "64 MB",
+                            "Extended-capacity PS2 memory card.",
+                            64)
+                    },
+                    "PS2 Memory Card Size");
+
+            if (sizeMb != 0)
+                await CreateNewPs2FileCardAsync(sideText[0], sizeMb, format == 2);
+        }
         else if (choice == 2)
+        {
             await CreateNewPs2FolderCardAsync(sideText[0]);
+        }
     }
 
-    private async Task CreateNewPs2FileCardAsync(char side)
+    private async Task CreateNewPs2FileCardAsync(
+        char side,
+        int sizeMb,
+        bool createMc2)
     {
+        var extension = createMc2 ? ".mc2" : ".ps2";
+        var formatName = createMc2 ? "MemCard PRO2" : "PCSX2";
+
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
-            Title = "Create Standard PS2 Memory Card",
-            Filter = "PCSX2 Memory Card (*.ps2)|*.ps2",
-            DefaultExt = ".ps2",
+            Title = $"Create {sizeMb} MB {formatName} Memory Card",
+            Filter = createMc2
+                ? "MemCard PRO2 Memory Card (*.mc2)|*.mc2"
+                : "PCSX2 Memory Card (*.ps2)|*.ps2",
+            DefaultExt = extension,
             AddExtension = true,
-            FileName = side == 'A'
-                ? "PS2 Card A.ps2"
-                : "PS2 Card B.ps2",
+            FileName = createMc2
+                ? "MemoryCard1-1.mc2"
+                : (side == 'A'
+                    ? $"PS2 Card A - {sizeMb}MB.ps2"
+                    : $"PS2 Card B - {sizeMb}MB.ps2"),
             OverwritePrompt = true
         };
 
@@ -1009,16 +1086,24 @@ public partial class MainWindow : Window
 
         try
         {
-            SetBusy(true, "Creating standard 8 MB PS2 memory card...");
-            await _engine.CreateCardAsync(dialog.FileName);
-            Log($"Created PS2 memory card: {dialog.FileName}");
+            SetBusy(
+                true,
+                $"Creating {sizeMb} MB {formatName} memory card...");
+
+            await _engine.CreateCardAsync(
+                dialog.FileName,
+                sizeMb);
+
+            Log(
+                $"Created {sizeMb} MB {formatName} memory card: {dialog.FileName}");
+
             await LoadCardAsync(
                 dialog.FileName,
                 side,
                 allowWhileBusy: true);
 
             MessageBox.Show(
-                "The standard 8 MB PS2 memory card was created, verified, and opened.",
+                $"The {sizeMb} MB {formatName} memory card was created, verified, and opened.",
                 "PS2 Card Created",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
@@ -1028,14 +1113,13 @@ public partial class MainWindow : Window
             Log($"PS2 card creation failed: {ex.Message}");
             MessageBox.Show(
                 ex.Message,
-                "PS2 Card Creation Failed",
+                "Could Not Create PS2 Card",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
         }
         finally
         {
             SetBusy(false, "Ready.");
-            RefreshButtons();
         }
     }
 
@@ -1211,27 +1295,98 @@ public partial class MainWindow : Window
     private async Task ExportSelectedAsync(string? card, SaveEntry? save)
     {
         if (card is null || save is null) return;
+
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
             Title = "Export PS2 Save",
-            Filter = "EMS / Memory Linker PSU (*.psu)|*.psu|Action Replay MAX (*.max)|*.max",
+            Filter =
+                "EMS / Memory Linker PSU (*.psu)|*.psu|" +
+                "Action Replay MAX (*.max)|*.max|" +
+                "PCSX2 Memory Card (*.ps2)|*.ps2|" +
+                "MemCard PRO2 Memory Card (*.mc2)|*.mc2",
             DefaultExt = ".psu",
-            FileName = save.DirectoryId + ".psu"
+            FileName = save.DirectoryId + ".psu",
+            AddExtension = true,
+            OverwritePrompt = true
         };
+
         if (dialog.ShowDialog() != true) return;
+
+        var output = Path.GetFullPath(dialog.FileName);
+        var extension = Path.GetExtension(output).ToLowerInvariant();
+
+        if (extension == ".mc2")
+        {
+            output = PromptForMemCardPro2ReadyOutput(output, save.DirectoryId);
+            if (string.IsNullOrWhiteSpace(output)) return;
+        }
+
         try
         {
             SetBusy(true, "Exporting save...");
-            await _engine.ExportPackageAsync(card, save.DirectoryId, dialog.FileName);
-            Log($"Exported {save.DirectoryId} to {dialog.FileName}.");
-            MessageBox.Show("Save exported and verified successfully.", "Export Complete",
-                MessageBoxButton.OK, MessageBoxImage.Information);
+
+            if (extension is ".ps2" or ".mc2")
+            {
+                await CreateSingleSaveCardAsync(card, save.DirectoryId, output, extension == ".mc2");
+                Log($"Exported {save.DirectoryId} to single-save card {output}.");
+                MessageBox.Show(
+                    $"A fresh memory card containing only the selected save was created and verified.\n\n{output}",
+                    "Export Complete",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            else
+            {
+                await _engine.ExportPackageAsync(card, save.DirectoryId, output);
+                Log($"Exported {save.DirectoryId} to {output}.");
+                MessageBox.Show(
+                    "Save exported and verified successfully.",
+                    "Export Complete",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
         }
         catch (Exception ex)
         {
+            try { if (File.Exists(output)) File.Delete(output); } catch { }
             MessageBox.Show(ex.Message, "Export Failed", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally { SetBusy(false, "Ready."); }
+    }
+
+    private async Task CreateSingleSaveCardAsync(
+        string sourceCard,
+        string directoryId,
+        string output,
+        bool noEcc)
+    {
+        var temporaryRoot = Path.Combine(
+            Path.GetTempPath(),
+            "PSM-SINGLE-SAVE-CARD-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryRoot);
+
+        try
+        {
+            var package = Path.Combine(temporaryRoot, directoryId + ".psu");
+            await _engine.ExportPackageAsync(sourceCard, directoryId, package);
+
+            if (File.Exists(output)) File.Delete(output);
+            await _engine.CreateCardAsync(output, noEcc);
+            await _engine.ImportAsync(output, package);
+            await _engine.CheckAsync(output);
+
+            var saves = await _engine.ReadDirectoryAsync(output);
+            if (saves.Count != 1 ||
+                !saves[0].DirectoryId.Equals(directoryId, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    "The single-save memory card could not be verified exactly.");
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(temporaryRoot, true); } catch { }
+        }
     }
 
     private void BackupA_Click(object sender, RoutedEventArgs e) { if (_pathA is not null) ShowBackup(_pathA); }
@@ -1256,7 +1411,7 @@ public partial class MainWindow : Window
         RoutedEventArgs e)
     {
         if (_pathA is not null)
-            await SavePs2CardAsAsync(_pathA);
+            await SavePs2CardAsAsync(_pathA, CardAList.SelectedItem as SaveEntry);
     }
 
     private async void SaveAsB_Click(
@@ -1264,10 +1419,10 @@ public partial class MainWindow : Window
         RoutedEventArgs e)
     {
         if (_pathB is not null)
-            await SavePs2CardAsAsync(_pathB);
+            await SavePs2CardAsAsync(_pathB, CardBList.SelectedItem as SaveEntry);
     }
 
-    private async Task SavePs2CardAsAsync(string sourcePath)
+    private async Task SavePs2CardAsAsync(string sourcePath, SaveEntry? selectedSave)
     {
         var sourceExtension =
             Path.GetExtension(sourcePath)
@@ -1309,6 +1464,37 @@ public partial class MainWindow : Window
 
         var folderCard =
             dialog.FilterIndex == 4;
+
+        if (!folderCard &&
+            Path.GetExtension(destinationPath).Equals(
+                ".mc2",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            var preferredDirectoryId = selectedSave?.DirectoryId;
+
+            if (string.IsNullOrWhiteSpace(preferredDirectoryId))
+            {
+                try
+                {
+                    var saves = await _engine.ReadDirectoryAsync(sourcePath);
+                    preferredDirectoryId = saves
+                        .Select(save => save.DirectoryId)
+                        .FirstOrDefault(id =>
+                            !string.IsNullOrWhiteSpace(ExtractGameSerial(id)));
+                }
+                catch
+                {
+                    // The normal Save Card As path can still continue.
+                }
+            }
+
+            destinationPath = PromptForMemCardPro2ReadyOutput(
+                destinationPath,
+                preferredDirectoryId);
+
+            if (string.IsNullOrWhiteSpace(destinationPath))
+                return;
+        }
 
         if (Path.GetFullPath(sourcePath).Equals(
             destinationPath,
@@ -1610,7 +1796,7 @@ public partial class MainWindow : Window
                 var iconResult = await _iconService.LoadResultAsync(cardPath, save.DirectoryId);
                 var model = iconResult.Model;
                 var thumbnail = model is not null
-                    ? await Task.Run(() => model.Render(48, 48, 0, -0.35))
+                    ? await Task.Run(() => model.Render(48, 48, 0, Ps2IconFrontRotation))
                     : iconResult.IsCorrupted
                         ? await Task.Run(() => BuiltInSaveIcons.RenderCorruptedSave(48, 48))
                         : null;
@@ -1715,11 +1901,13 @@ public partial class MainWindow : Window
         if (side == 'A')
         {
             _previewModelA = model;
+            _previewRotationStartA = _iconAnimationClock.Elapsed.TotalSeconds;
             _previewFallbackA = iconResult.IsCorrupted ? BuiltInSaveIcons.GetCorruptedModel() : null;
         }
         else
         {
             _previewModelB = model;
+            _previewRotationStartB = _iconAnimationClock.Elapsed.TotalSeconds;
             _previewFallbackB = iconResult.IsCorrupted ? BuiltInSaveIcons.GetCorruptedModel() : null;
         }
 
@@ -1743,10 +1931,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        var rendered = await Task.Run(() => model.Render(150, 138, _iconAnimationClock.Elapsed.TotalSeconds, -0.32));
+        var rendered = await Task.Run(() => model.Render(150, 138, _iconAnimationClock.Elapsed.TotalSeconds, Ps2IconFrontRotation));
         targetImage.Source = rendered;
         targetPlaceholder.Visibility = Visibility.Collapsed;
-        save.IconImage ??= await Task.Run(() => model.Render(48, 48, 0, -0.35));
+        save.IconImage ??= await Task.Run(() => model.Render(48, 48, 0, Ps2IconFrontRotation));
     }
 
     private async void IconAnimationTimer_Tick(object? sender, EventArgs e)
@@ -1759,7 +1947,8 @@ public partial class MainWindow : Window
             try
             {
                 var model = _previewModelA;
-                var frame = await Task.Run(() => model.Render(150, 138, time, time * 0.42));
+                var rotationTime = Math.Max(0, time - _previewRotationStartA);
+                var frame = await Task.Run(() => model.Render(150, 138, time, Ps2IconFrontRotation + rotationTime * 0.42));
                 if (ReferenceEquals(model, _previewModelA)) PreviewImageA.Source = frame;
             }
             finally { _previewRenderA = false; }
@@ -1771,7 +1960,8 @@ public partial class MainWindow : Window
             try
             {
                 var model = _previewModelB;
-                var frame = await Task.Run(() => model.Render(150, 138, time, time * 0.42));
+                var rotationTime = Math.Max(0, time - _previewRotationStartB);
+                var frame = await Task.Run(() => model.Render(150, 138, time, Ps2IconFrontRotation + rotationTime * 0.42));
                 if (ReferenceEquals(model, _previewModelB)) PreviewImageB.Source = frame;
             }
             finally { _previewRenderB = false; }
@@ -1816,8 +2006,9 @@ public partial class MainWindow : Window
                 if (_libraryPreviewModel is not null)
                 {
                     var model = _libraryPreviewModel;
+                    var rotationTime = Math.Max(0, time - _libraryPreviewRotationStart);
                     var frame = await Task.Run(() =>
-                        model.Render(160, 160, time, time * 0.42));
+                        model.Render(160, 160, time, Ps2IconFrontRotation + rotationTime * 0.42));
 
                     if (ReferenceEquals(model, _libraryPreviewModel))
                     {
@@ -2704,6 +2895,28 @@ public partial class MainWindow : Window
 
         var tempRoot = Path.Combine(Path.GetTempPath(), "PSM-UNIVERSAL-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRoot);
+
+        if (target.Extension == ".mc2")
+        {
+            var preferredDirectoryId =
+                await TryGetUniversalSourceDirectoryIdAsync(
+                    source,
+                    sourceExtension,
+                    tempRoot);
+
+            output = PromptForMemCardPro2ReadyOutput(
+                output,
+                preferredDirectoryId);
+
+            if (string.IsNullOrWhiteSpace(output))
+            {
+                try { Directory.Delete(tempRoot, true); } catch { }
+                return;
+            }
+
+            UniversalOutputPath.Text = output;
+        }
+
         UniversalTechnicalLog.Clear();
 
         try
@@ -2968,7 +3181,7 @@ public partial class MainWindow : Window
 
         return Path.Combine(
             directory,
-            entry.Sha256 + ".png");
+            entry.Sha256 + "-front-v1.png");
     }
 
     private async Task LoadSaveLibraryIconAsync(
@@ -2988,7 +3201,7 @@ public partial class MainWindow : Window
         var cachedIconPath =
             Path.Combine(
                 iconDirectory,
-                entry.Sha256 + ".png");
+                entry.Sha256 + "-front-v1.png");
 
         var previewCachePath =
             GetSaveLibraryPreviewCachePath(
@@ -3175,7 +3388,7 @@ public partial class MainWindow : Window
                                 160,
                                 160,
                                 0,
-                                -0.35))
+                                Ps2IconFrontRotation))
                         : iconResult.IsCorrupted
                             ? await Task.Run(() =>
                                 BuiltInSaveIcons
@@ -3191,7 +3404,7 @@ public partial class MainWindow : Window
                                 512,
                                 512,
                                 0,
-                                -0.35))
+                                Ps2IconFrontRotation))
                         : iconResult.IsCorrupted
                             ? await Task.Run(() =>
                                 BuiltInSaveIcons
@@ -3640,17 +3853,27 @@ await LoadSaveLibraryIconAsync(entry);
         LibraryRemoveButton.IsEnabled = true;
     }
 
+    private void StartSaveLibraryIconLoading()
+    {
+        if (_saveLibraryIconsStarted || !_saveLibraryLoaded || !_engine.IsInstalled)
+            return;
+
+        _saveLibraryIconsStarted = true;
+        _ = LoadSaveLibraryIconsAsync(_saveLibraryIndex.Entries);
+    }
+
     private async Task LoadSaveLibraryAsync()
     {
         try
         {
             _saveLibraryIndex =
                 await _saveLibraryService.LoadAsync();
+            _saveLibraryLoaded = true;
 
             ApplySaveLibraryFilter();
 
-            _ = LoadSaveLibraryIconsAsync(
-                _saveLibraryIndex.Entries);
+            if (_engine.IsInstalled)
+                StartSaveLibraryIconLoading();
 
             LibraryFooterStatus.Text =
                 _saveLibraryIndex.Entries.Count == 0
@@ -4512,14 +4735,14 @@ await LoadSaveLibraryIconAsync(result.Entry);
 
                 if (!File.Exists(previewCachePath))
                 {
-                    var still =
+                    var systemStill =
                         BuiltInSaveIcons
                             .RenderSystemConfiguration(
                                 512,
                                 512);
 
                     SaveBitmapAsPng(
-                        still,
+                        systemStill,
                         previewCachePath);
                 }
 
@@ -4536,34 +4759,32 @@ await LoadSaveLibraryIconAsync(result.Entry);
                 return;
 
             _libraryPreviewModel = iconResult.Model;
+            _libraryPreviewRotationStart = _iconAnimationClock.Elapsed.TotalSeconds;
             _libraryPreviewFallback = iconResult.IsCorrupted
                 ? BuiltInSaveIcons.GetCorruptedModel()
                 : null;
 
-            if (!File.Exists(previewCachePath))
-            {
-                BitmapSource? still =
-                    _libraryPreviewModel is not null
+            BitmapSource? still =
+                _libraryPreviewModel is not null
+                    ? await Task.Run(() =>
+                        _libraryPreviewModel.Render(
+                            512,
+                            512,
+                            0,
+                            Ps2IconFrontRotation))
+                    : _libraryPreviewFallback is not null
                         ? await Task.Run(() =>
-                            _libraryPreviewModel.Render(
-                                512,
-                                512,
-                                0,
-                                -0.35))
-                        : _libraryPreviewFallback is not null
-                            ? await Task.Run(() =>
-                                BuiltInSaveIcons
-                                    .RenderCorruptedSave(
-                                        512,
-                                        512))
-                            : null;
+                            BuiltInSaveIcons
+                                .RenderCorruptedSave(
+                                    512,
+                                    512))
+                        : null;
 
-                if (still is not null)
-                {
-                    SaveBitmapAsPng(
-                        still,
-                        previewCachePath);
-                }
+            if (still is not null)
+            {
+                LibraryPreviewImage.Source = still;
+                LibraryPreviewPlaceholder.Visibility = Visibility.Collapsed;
+                SaveBitmapAsPng(still, previewCachePath);
             }
 
             if (_libraryPreviewModel is not null ||
@@ -5832,6 +6053,173 @@ await LoadSaveLibraryIconAsync(result.Entry);
         }
     }
 
+    private string PromptForMemCardPro2ReadyOutput(
+        string requestedOutput,
+        string? preferredDirectoryId)
+    {
+        var result = MessageBox.Show(
+            "Would you like PSM to create a MemCard PRO2-ready folder and filename?\n\n" +
+            "Example:\nSLUS-20144\\SLUS-20144-1.mc2\n\n" +
+            "Choose No to save a normal loose .mc2 file.",
+            "MemCard PRO2 Ready",
+            MessageBoxButton.YesNoCancel,
+            MessageBoxImage.Question);
+
+        if (result == MessageBoxResult.Cancel)
+            return string.Empty;
+
+        if (result != MessageBoxResult.Yes)
+            return requestedOutput;
+
+        var defaultSerial = ExtractGameSerial(preferredDirectoryId ?? string.Empty);
+        var serial = PromptForGameSerial(defaultSerial);
+        if (string.IsNullOrWhiteSpace(serial))
+            return string.Empty;
+
+        var parent = Path.GetDirectoryName(requestedOutput);
+        if (string.IsNullOrWhiteSpace(parent))
+            parent = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+
+        var folder = Path.Combine(parent, serial);
+        Directory.CreateDirectory(folder);
+        var output = Path.Combine(folder, serial + "-1.mc2");
+
+        if (File.Exists(output))
+        {
+            var overwrite = MessageBox.Show(
+                $"The MemCard PRO2 card already exists:\n\n{output}\n\nReplace it?",
+                "Replace MemCard PRO2 Card",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (overwrite != MessageBoxResult.Yes)
+                return string.Empty;
+        }
+
+        return output;
+    }
+
+    private string? PromptForGameSerial(string defaultSerial)
+    {
+        var dialog = new Window
+        {
+            Title = "MemCard PRO2 Game Serial",
+            Owner = this,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            SizeToContent = SizeToContent.WidthAndHeight,
+            ResizeMode = ResizeMode.NoResize,
+            Background = new SolidColorBrush(Color.FromRgb(7, 11, 16)),
+            ShowInTaskbar = false
+        };
+
+        var panel = new StackPanel { Margin = new Thickness(20), Width = 390 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Enter the game serial used by MemCard PRO2.",
+            Foreground = Brushes.White,
+            FontSize = 16,
+            FontWeight = FontWeights.SemiBold
+        });
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Example: SLUS-20144",
+            Foreground = new SolidColorBrush(Color.FromRgb(159, 176, 197)),
+            Margin = new Thickness(0, 5, 0, 12)
+        });
+
+        var input = new TextBox
+        {
+            Text = defaultSerial,
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 15,
+            MinWidth = 350
+        };
+        input.SelectAll();
+        panel.Children.Add(input);
+
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 16, 0, 0)
+        };
+        var cancel = new Button { Content = "Cancel", MinWidth = 90 };
+        var ok = new Button { Content = "Create", MinWidth = 90, IsDefault = true };
+        cancel.Click += (_, _) => dialog.DialogResult = false;
+        ok.Click += (_, _) =>
+        {
+            var normalized = NormalizeGameSerial(input.Text);
+            if (string.IsNullOrWhiteSpace(normalized))
+            {
+                MessageBox.Show(
+                    dialog,
+                    "Enter a valid PlayStation 2 serial such as SLUS-20144.",
+                    "Invalid Game Serial",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
+            input.Text = normalized;
+            dialog.Tag = normalized;
+            dialog.DialogResult = true;
+        };
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(ok);
+        panel.Children.Add(buttons);
+        dialog.Content = panel;
+        dialog.Loaded += (_, _) => input.Focus();
+
+        return dialog.ShowDialog() == true
+            ? dialog.Tag as string
+            : null;
+    }
+
+    private static string NormalizeGameSerial(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        var match = System.Text.RegularExpressions.Regex.Match(
+            value.ToUpperInvariant(),
+            @"(?<prefix>S[A-Z]{3,4})[-_ ]?(?<number>\d{5})");
+
+        return match.Success
+            ? $"{match.Groups["prefix"].Value}-{match.Groups["number"].Value}"
+            : string.Empty;
+    }
+
+    private async Task<string?> TryGetUniversalSourceDirectoryIdAsync(
+        string source,
+        string sourceExtension,
+        string tempRoot)
+    {
+        try
+        {
+            if (sourceExtension is ".mc2" or ".ps2" or ".foldercard")
+            {
+                var saves = await _engine.ReadDirectoryAsync(source);
+                return saves
+                    .Select(save => save.DirectoryId)
+                    .FirstOrDefault(id =>
+                        !string.IsNullOrWhiteSpace(ExtractGameSerial(id)));
+            }
+
+            var probeCard = Path.Combine(tempRoot, "memcardpro2-probe.ps2");
+            await _engine.CreateCardAsync(probeCard, false);
+            await _engine.ImportAsync(probeCard, source);
+            var imported = await _engine.ReadDirectoryAsync(probeCard);
+            return imported.FirstOrDefault()?.DirectoryId;
+        }
+        catch (Exception ex)
+        {
+            AppendUniversalLog(
+                "MemCard PRO2 serial detection could not read the source: " +
+                ex.Message);
+            return null;
+        }
+    }
+
     private static string ExtractGameSerial(string directoryId)
     {
         if (string.IsNullOrWhiteSpace(directoryId))
@@ -6027,7 +6415,9 @@ await LoadSaveLibraryIconAsync(result.Entry);
               "PS3 Virtual Memory Card (*.vm1)|*.vm1"
             : "Original Save Package|*" + entry.Extension + "|" +
               "EMS / Memory Linker PSU (*.psu)|*.psu|" +
-              "Action Replay MAX (*.max)|*.max";
+              "Action Replay MAX (*.max)|*.max|" +
+              "PCSX2 Memory Card (*.ps2)|*.ps2|" +
+              "MemCard PRO2 Memory Card (*.mc2)|*.mc2";
 
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
@@ -6043,17 +6433,55 @@ await LoadSaveLibraryIconAsync(result.Entry);
         try
         {
             SetBusy(true, "Exporting library save...");
-            var destinationExtension = Path.GetExtension(dialog.FileName).ToLowerInvariant();
+            var destinationPath = Path.GetFullPath(dialog.FileName);
+            var destinationExtension = Path.GetExtension(destinationPath).ToLowerInvariant();
             var storedPath = _saveLibraryService.GetStoredPath(entry);
+
+            if (!isPs1 && destinationExtension == ".mc2")
+            {
+                destinationPath = PromptForMemCardPro2ReadyOutput(
+                    destinationPath,
+                    entry.DirectoryId);
+                if (string.IsNullOrWhiteSpace(destinationPath))
+                    return;
+            }
 
             if (destinationExtension.Equals(entry.Extension, StringComparison.OrdinalIgnoreCase))
             {
-                await _saveLibraryService.ExportAsync(entry, dialog.FileName);
+                await _saveLibraryService.ExportAsync(entry, destinationPath);
             }
             else if (isPs1)
             {
                 await _ps1CardService.CreateSingleSaveCardFromPackageAsync(
-                    storedPath, dialog.FileName);
+                    storedPath, destinationPath);
+            }
+            else if (destinationExtension is ".ps2" or ".mc2")
+            {
+                var temporaryRoot = Path.Combine(
+                    Path.GetTempPath(), "PSM-LIBRARY-CARD-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(temporaryRoot);
+                try
+                {
+                    var sourceCard = Path.Combine(temporaryRoot, "source.ps2");
+                    await _engine.CreateCardAsync(sourceCard, false);
+                    await _engine.ImportAsync(sourceCard, storedPath);
+                    await _engine.CheckAsync(sourceCard);
+                    var saves = await _engine.ReadDirectoryAsync(sourceCard);
+                    var save = saves.FirstOrDefault(candidate =>
+                        candidate.DirectoryId.Equals(entry.DirectoryId, StringComparison.OrdinalIgnoreCase))
+                        ?? saves.SingleOrDefault()
+                        ?? throw new InvalidDataException("The stored save could not be verified.");
+
+                    await CreateSingleSaveCardAsync(
+                        sourceCard,
+                        save.DirectoryId,
+                        destinationPath,
+                        destinationExtension == ".mc2");
+                }
+                finally
+                {
+                    try { Directory.Delete(temporaryRoot, true); } catch { }
+                }
             }
             else
             {
@@ -6071,7 +6499,7 @@ await LoadSaveLibraryIconAsync(result.Entry);
                         candidate.DirectoryId.Equals(entry.DirectoryId, StringComparison.OrdinalIgnoreCase))
                         ?? saves.SingleOrDefault()
                         ?? throw new InvalidDataException("The stored save could not be verified.");
-                    await _engine.ExportPackageAsync(card, save.DirectoryId, dialog.FileName);
+                    await _engine.ExportPackageAsync(card, save.DirectoryId, destinationPath);
                 }
                 finally
                 {
@@ -6080,10 +6508,10 @@ await LoadSaveLibraryIconAsync(result.Entry);
             }
 
             LibraryFooterStatus.Text =
-                $"Export verified: {Path.GetFileName(dialog.FileName)}";
-            Log($"Save Library export verified: {dialog.FileName}");
+                $"Export verified: {Path.GetFileName(destinationPath)}";
+            Log($"Save Library export verified: {destinationPath}");
             MessageBox.Show(
-                $"Save exported and verified.\n\n{dialog.FileName}",
+                $"Save exported and verified.\n\n{destinationPath}",
                 "Save Library Export",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);

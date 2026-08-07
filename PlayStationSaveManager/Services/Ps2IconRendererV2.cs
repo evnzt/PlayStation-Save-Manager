@@ -49,8 +49,27 @@ internal static class Ps2IconRendererV2
             model,
             elapsedSeconds);
 
+        // Icons whose animation timeline contradicts the declared header
+        // length (Blade II is one example) are held on a stable pose. Some
+        // of those models are also authored as thin, single-sided geometry,
+        // so the normal-based thin-card cull can make pieces disappear while
+        // the preview rotates edge-on. Disable only that cull for the same
+        // narrowly detected malformed-animation case; all valid icons keep
+        // the existing renderer behavior.
+        var renderMalformedAnimationDoubleSided =
+            HasContradictoryAnimationTimeline(model);
+
         var thinCardDepthBias =
             GetThinCardDepthBias(animated);
+
+        // Large, flat background panels in some animated icons can carry
+        // unreliable per-vertex normals.  Use the panel's actual geometry
+        // only for back-face culling on those large planar triangles.  This
+        // keeps the front panel stable during rotation and prevents the
+        // mirrored rear copy from peeking through, while leaving ordinary
+        // icon triangles on the established normal-based path.
+        var largePlanarCullArea =
+            GetLargePlanarCullArea(animated);
 
         var vertices = BuildVertices(
             model,
@@ -74,8 +93,13 @@ internal static class Ps2IconRendererV2
             width,
             height,
             useTextureMask: useMasked,
-            useNeutralLighting: false,
-            thinCardDepthBias: thinCardDepthBias);
+            useNeutralLighting:
+                model.Shapes.Length == 1 &&
+                thinCardDepthBias > 0.0,
+            thinCardDepthBias: thinCardDepthBias,
+            disableThinCardBackfaceCull:
+                renderMalformedAnimationDoubleSided,
+            largePlanarCullArea: largePlanarCullArea);
 
         ApplyMildGamma(selected);
 
@@ -136,7 +160,9 @@ internal static class Ps2IconRendererV2
                     Math.Max(96, height),
                     useTextureMask: false,
                     useNeutralLighting: false,
-                    thinCardDepthBias: 0.0);
+                    thinCardDepthBias: 0.0,
+                    disableThinCardBackfaceCull: false,
+                    largePlanarCullArea: 0.0);
 
             var masked =
                 Rasterize(
@@ -146,7 +172,9 @@ internal static class Ps2IconRendererV2
                     Math.Max(96, height),
                     useTextureMask: true,
                     useNeutralLighting: false,
-                    thinCardDepthBias: 0.0);
+                    thinCardDepthBias: 0.0,
+                    disableThinCardBackfaceCull: false,
+                    largePlanarCullArea: 0.0);
 
             model.V2UseTextureMask =
                 ShouldUseMaskedResult(
@@ -201,6 +229,75 @@ internal static class Ps2IconRendererV2
             0.0005);
     }
 
+    private static double GetLargePlanarCullArea(
+        double[] positions)
+    {
+        if (positions.Length < 9)
+            return 0.0;
+
+        double minX = double.MaxValue;
+        double maxX = double.MinValue;
+        double minY = double.MaxValue;
+        double maxY = double.MinValue;
+        double minZ = double.MaxValue;
+        double maxZ = double.MinValue;
+
+        for (var offset = 0;
+             offset + 2 < positions.Length;
+             offset += 3)
+        {
+            var x = positions[offset] / 4096.0;
+            var y = positions[offset + 1] / 4096.0;
+            var z = positions[offset + 2] / 4096.0;
+
+            minX = Math.Min(minX, x);
+            maxX = Math.Max(maxX, x);
+            minY = Math.Min(minY, y);
+            maxY = Math.Max(maxY, y);
+            minZ = Math.Min(minZ, z);
+            maxZ = Math.Max(maxZ, z);
+        }
+
+        var spanX = Math.Max(0.0001, maxX - minX);
+        var spanY = Math.Max(0.0001, maxY - minY);
+        var spanZ = Math.Max(0.0, maxZ - minZ);
+        var faceSpan = Math.Max(spanX, spanY);
+
+        // Only engage for genuinely thin card-like models.  The threshold
+        // selects broad backdrop panels, not the smaller foreground pieces.
+        if (spanZ > faceSpan * 0.10)
+            return 0.0;
+
+        return spanX * spanY * 0.12;
+    }
+
+    private static bool HasContradictoryAnimationTimeline(
+        Ps2IconModel model)
+    {
+        if (model.Shapes.Length <= 1 ||
+            model.FrameLength <= 0)
+        {
+            return false;
+        }
+
+        var keys = model.Frames
+            .SelectMany(frame => frame.Keys)
+            .Where(key =>
+                float.IsFinite(key.Time) &&
+                float.IsFinite(key.Value))
+            .ToArray();
+
+        if (keys.Length == 0)
+            return false;
+
+        var minimumKeyTime = keys.Min(key => key.Time);
+        var maximumKeyTime = keys.Max(key => key.Time);
+        var declaredLength = Math.Max(1.0, model.FrameLength);
+
+        return maximumKeyTime - minimumKeyTime >
+               declaredLength * 1.5;
+    }
+
     private static double[] BuildAnimatedVertices(
         Ps2IconModel model,
         double elapsedSeconds)
@@ -214,6 +311,92 @@ internal static class Ps2IconRendererV2
             return model.Shapes[0]
                 .Select(value => (double)value)
                 .ToArray();
+        }
+
+        // Some PS2 icons contain degenerate animation tables where every
+        // key is stamped at the same instant. Cycling evenly through every
+        // stored shape makes those icons thrash wildly (Sled Storm is one
+        // example). In that case the key values describe the intended held
+        // shape, so render that shape instead of inventing intermediate
+        // animation that is not present in the file.
+        var animationKeys = model.Frames
+            .SelectMany(frame => frame.Keys)
+            .Where(key =>
+                float.IsFinite(key.Time) &&
+                float.IsFinite(key.Value))
+            .ToArray();
+
+        if (animationKeys.Length > 0)
+        {
+            var firstTime = animationKeys[0].Time;
+            var oneInstant = animationKeys.All(
+                key => Math.Abs(key.Time - firstTime) < 0.0001f);
+
+            if (oneInstant)
+            {
+                var heldShape = model.Frames
+                    .Where(frame =>
+                        frame.ShapeId >= 0 &&
+                        frame.ShapeId < shapeCount)
+                    .Select(frame => new
+                    {
+                        frame.ShapeId,
+                        Weight = frame.Keys
+                            .Where(key => float.IsFinite(key.Value))
+                            .Select(key => (double)key.Value)
+                            .DefaultIfEmpty(0.0)
+                            .Max()
+                    })
+                    .OrderByDescending(item => item.Weight)
+                    .FirstOrDefault();
+
+                if (heldShape is not null && heldShape.Weight > 0.0)
+                {
+                    return model.Shapes[heldShape.ShapeId]
+                        .Select(value => (double)value)
+                        .ToArray();
+                }
+            }
+
+            // A few icons contain a keyframe timeline that is much longer
+            // than the animation length declared in the header. Treating
+            // those shapes as a normal evenly timed loop makes the model
+            // thrash rapidly. Preserve the pose selected at the beginning
+            // of the real key timeline instead. This fallback is limited to
+            // contradictory files and does not alter valid animations.
+            var minimumKeyTime = animationKeys.Min(key => key.Time);
+            var maximumKeyTime = animationKeys.Max(key => key.Time);
+            var declaredLength = Math.Max(1.0, model.FrameLength);
+
+            if (maximumKeyTime - minimumKeyTime >
+                declaredLength * 1.5)
+            {
+                var initialShape = model.Frames
+                    .Where(frame =>
+                        frame.ShapeId >= 0 &&
+                        frame.ShapeId < shapeCount)
+                    .Select(frame => new
+                    {
+                        frame.ShapeId,
+                        Weight = frame.Keys
+                            .Where(key =>
+                                float.IsFinite(key.Time) &&
+                                float.IsFinite(key.Value) &&
+                                Math.Abs(key.Time - minimumKeyTime) < 0.0001f)
+                            .Select(key => (double)key.Value)
+                            .DefaultIfEmpty(0.0)
+                            .Max()
+                    })
+                    .OrderByDescending(item => item.Weight)
+                    .FirstOrDefault();
+
+                if (initialShape is not null && initialShape.Weight > 0.0)
+                {
+                    return model.Shapes[initialShape.ShapeId]
+                        .Select(value => (double)value)
+                        .ToArray();
+                }
+            }
         }
 
         var frame =
@@ -450,7 +633,9 @@ internal static class Ps2IconRendererV2
         int height,
         bool useTextureMask,
         bool useNeutralLighting,
-        double thinCardDepthBias)
+        double thinCardDepthBias,
+        bool disableThinCardBackfaceCull,
+        double largePlanarCullArea)
     {
         var pixels =
             new byte[width * height * 4];
@@ -475,7 +660,9 @@ internal static class Ps2IconRendererV2
                 height,
                 useTextureMask,
                 useNeutralLighting,
-                thinCardDepthBias);
+                thinCardDepthBias,
+                disableThinCardBackfaceCull,
+                largePlanarCullArea);
         }
 
         return pixels;
@@ -492,7 +679,9 @@ internal static class Ps2IconRendererV2
         int height,
         bool useTextureMask,
         bool useNeutralLighting,
-        double thinCardDepthBias)
+        double thinCardDepthBias,
+        bool disableThinCardBackfaceCull,
+        double largePlanarCullArea)
     {
         var averageNormalZ =
             (a.Source.NormalZ +
@@ -500,8 +689,36 @@ internal static class Ps2IconRendererV2
              c.Source.NormalZ) /
             3.0;
 
-        if (thinCardDepthBias > 0.0 &&
-            averageNormalZ >= -0.015)
+        var cullNormalZ = averageNormalZ;
+
+        if (largePlanarCullArea > 0.0)
+        {
+            var edge1X = b.Source.X - a.Source.X;
+            var edge1Y = b.Source.Y - a.Source.Y;
+            var edge1Z = b.Source.Z - a.Source.Z;
+            var edge2X = c.Source.X - a.Source.X;
+            var edge2Y = c.Source.Y - a.Source.Y;
+            var edge2Z = c.Source.Z - a.Source.Z;
+
+            var faceX = edge1Y * edge2Z - edge1Z * edge2Y;
+            var faceY = edge1Z * edge2X - edge1X * edge2Z;
+            var faceZ = edge1X * edge2Y - edge1Y * edge2X;
+            var faceLength = Math.Sqrt(
+                faceX * faceX +
+                faceY * faceY +
+                faceZ * faceZ);
+            var faceArea = faceLength * 0.5;
+
+            if (faceLength > 0.000001 &&
+                faceArea >= largePlanarCullArea)
+            {
+                cullNormalZ = faceZ / faceLength;
+            }
+        }
+
+        if (!disableThinCardBackfaceCull &&
+            thinCardDepthBias > 0.0 &&
+            cullNormalZ >= -0.015)
         {
             return;
         }
@@ -864,19 +1081,12 @@ internal static class Ps2IconRendererV2
     {
         if (useNeutralLighting)
         {
-            var facing =
-                Math.Max(
-                    0.0,
-                    -nz);
-
-            var neutral =
-                0.72 +
-                0.28 * facing;
-
-            return (
-                neutral,
-                neutral,
-                neutral);
+            // Flat, single-shape icons are effectively textured cards.
+            // Per-vertex normals can disagree across their triangle split,
+            // producing a visible dark seam through otherwise continuous
+            // artwork (for example the CodeBreaker/Pelican icon). Preserve
+            // the source texture without synthetic lighting on this path.
+            return (1.0, 1.0, 1.0);
         }
 
         var r = settings.AmbientR;
