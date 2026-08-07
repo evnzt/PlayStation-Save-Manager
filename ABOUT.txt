@@ -26,8 +26,8 @@ Managing them became more difficult than actually playing the games.
 
 And that's how this project truly came about.
 
-I ran into issues converting my .mc2 memory card files to .ps2 format
-so I could use them with mymc to transfer to different devices.
+I struggled managing my library and ran into issues converting my .mc2 memory card
+files to .ps2 format so I could use them with different devices/emulators.
 
 I started looking for software that could make things easier.
 
@@ -37,13 +37,15 @@ focused on specific save formats.
 
 They were all useful.
 
-But none of them did what I needed.
+But none of them did everything I needed.
 
 That’s when one simple thought crossed my mind:
 
   “Why isn’t there one application that can do all of this?”
 
-That question eventually became PlayStation Save Manager.
+The answer to that:
+
+"PlayStation Save Manager."
 
 
 

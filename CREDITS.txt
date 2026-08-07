@@ -37,4 +37,4 @@ OpenAI ChatGPT (Don't hate me. I cant code for $#!+)
   https://gamesdb.launchbox-app.com/
 
 Special thanks to the retro PlayStation community,
-PCSX2, Duckstation, RetroArch, MemCard PRO2, myMC++, PS2 Converter/Builder, and everyone preserving classic games.
+PCSX2, Duckstation, RetroArch, MemCard PRO2, myMC/myMC++, PS2 Converter/Builder, and everyone preserving classic games.
