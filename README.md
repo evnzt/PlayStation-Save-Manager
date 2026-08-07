@@ -119,9 +119,11 @@ My save files were scattered everywhere.
 
 Some lived on original memory cards. Others were on my MemCard PRO2. Some were inside PCSX2. Others were in DuckStation, RetroArch, or on different devices entirely.
 
+Managing them became more difficult than actually playing the games.
+
 And that's how this project truly came about.
 
-I ran into issues converting my .mc2 memory card files to .ps2 format so I could use them with mymc to transfer to different devices.
+I struggled managing my library and ran into issues converting my .mc2 memory card files to .ps2 format so I could use them with different devices/emulators.
 
 I started looking for software that could make things easier.
 
@@ -129,7 +131,7 @@ I found several excellent utilities. Some converted save files. Others managed m
 
 They were all useful.
 
-But none of them did what I needed.
+But none of them did everything I needed.
 
 That’s when one simple thought crossed my mind:
 
@@ -137,7 +139,7 @@ That’s when one simple thought crossed my mind:
 
 The answer to that:
 
-  `PlayStation Save Manager.`
+  `"PlayStation Save Manager."`
 
 The goal became simple:
 
@@ -153,7 +155,7 @@ Download the latest release from the **Releases** page:
 
 Download the latest Windows package:
 
-`PlayStation_Save_Manager_vX.X.X_Windows_x64.zip`
+`PlayStation-Save-Manager-vX.X.X-Windows-x64.zip`
 
 ## Extract
 
@@ -194,7 +196,6 @@ The launcher will automatically:
 -   Download the myMC++ engine (first launch only)
 -   Configure the application
 -   Start PlayStation Save Manager
--   *If Build-and-Launch is selected, then it will build the .exe in the Publish folder
 
 > **Note:** The first launch may take 30--60 seconds while the required
 > engine is downloaded. Future launches are much faster.
@@ -206,6 +207,8 @@ The launcher will automatically:
 This happens only once.
 
 After setup is complete, everything runs locally.
+
+Following the first launch, use `Launch.cmd` or `PlayStation Save Manager.exe` in the `Publish` folder.
 
 ## Updating
 
@@ -220,7 +223,7 @@ the update process.
 
 ## Troubleshooting
 
-### Windows SmartScreen
+### Windows Security Warning
 
 Because PSM is currently unsigned, Windows may display a warning the
 first time it is launched.
@@ -228,14 +231,16 @@ first time it is launched.
 Click:
 
 ``` text
-More info
+Run
 ```
 
-then
+or
 
 ``` text
-Run anyway
+Cancel
 ```
+
+if you do not feel comfortable going forward.
 
 ### Antivirus Warning
 
