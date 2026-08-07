@@ -305,7 +305,7 @@ for complete acknowledgments.
   Copyright © the myMC++ contributors. Used under the GNU GPL v3 license.
   https://github.com/Adubbz/mymcplusplus
 
-Special thanks to the developers of myMC/myMC++, MemcardRex, PS2 Save Converter / Builder, and PCSX2 for all the inspiration.
+Special thanks to the developers of myMC/myMC++, MemcardRex, PS2 Save Converter/Builder, and PCSX2 for all the inspiration.
 
 ---
 
