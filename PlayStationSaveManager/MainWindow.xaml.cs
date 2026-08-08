@@ -638,8 +638,38 @@ public partial class MainWindow : Window
 
     private void Log(string message)
     {
-        ActivityLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
+        ActivityLog.AppendText(
+            $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
         ActivityLog.ScrollToEnd();
+
+        AppLog.WriteActivity(message);
+    }
+
+    private void OpenLogsFolder_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(
+                AppLog.LogsDirectory);
+
+            Process.Start(
+                new ProcessStartInfo
+                {
+                    FileName =
+                        AppLog.LogsDirectory,
+                    UseShellExecute = true
+                });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                ex.Message,
+                "Could Not Open Logs Folder",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
     }
 
     private void UpdateCapacityDisplay(char side, CardReadResult result)
@@ -2579,7 +2609,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            current = VisualTreeHelper.GetParent(current);
+            current = GetInputParent(current);
         }
 
         if (Keyboard.FocusedElement is not TextBox focusedTextBox ||
@@ -2598,6 +2628,29 @@ public partial class MainWindow : Window
             Keyboard.ClearFocus();
             FocusManager.SetFocusedElement(MainTabs, null);
         }
+    }
+
+    private static DependencyObject? GetInputParent(
+        DependencyObject current)
+    {
+        if (current is Visual ||
+            current is System.Windows.Media.Media3D.Visual3D)
+        {
+            return VisualTreeHelper.GetParent(current);
+        }
+
+        if (current is FrameworkContentElement frameworkContent)
+        {
+            return frameworkContent.Parent ??
+                LogicalTreeHelper.GetParent(frameworkContent);
+        }
+
+        if (current is ContentElement content)
+        {
+            return System.Windows.ContentOperations.GetParent(content);
+        }
+
+        return LogicalTreeHelper.GetParent(current);
     }
 
     private void Window_PreviewKeyDown(
@@ -3517,56 +3570,237 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void AddLibraryA_Click(object sender, RoutedEventArgs e) =>
-        await ShowStoreLibraryChoiceAsync(_pathA, CardAList.SelectedItem as SaveEntry, null, 'A', false);
+    private async void AddLibraryA_Click(
+        object sender,
+        RoutedEventArgs e) =>
+        await ShowStoreLibraryChoiceAsync(
+            _pathA,
+            GetSelectedPs2CardSaves(CardAList),
+            Array.Empty<Ps1SaveEntry>(),
+            'A',
+            false);
 
-    private async void AddLibraryB_Click(object sender, RoutedEventArgs e) =>
-        await ShowStoreLibraryChoiceAsync(_pathB, CardBList.SelectedItem as SaveEntry, null, 'B', false);
+    private async void AddLibraryB_Click(
+        object sender,
+        RoutedEventArgs e) =>
+        await ShowStoreLibraryChoiceAsync(
+            _pathB,
+            GetSelectedPs2CardSaves(CardBList),
+            Array.Empty<Ps1SaveEntry>(),
+            'B',
+            false);
+
+    private static SaveEntry[] GetSelectedPs2CardSaves(
+        ListView list)
+    {
+        var selected =
+            list.SelectedItems
+                .Cast<SaveEntry>()
+                .ToArray();
+
+        if (selected.Length == 0 &&
+            list.SelectedItem is SaveEntry single)
+        {
+            selected = [single];
+        }
+
+        return selected;
+    }
+
+    private static Ps1SaveEntry[] GetSelectedPs1CardSaves(
+        ListView list)
+    {
+        var selected =
+            list.SelectedItems
+                .Cast<Ps1SaveEntry>()
+                .Where(save => !save.IsDeleted)
+                .ToArray();
+
+        if (selected.Length == 0 &&
+            list.SelectedItem is Ps1SaveEntry single &&
+            !single.IsDeleted)
+        {
+            selected = [single];
+        }
+
+        return selected;
+    }
 
     private async Task ShowStoreLibraryChoiceAsync(
-        string? cardPath, SaveEntry? ps2Save, Ps1SaveEntry? ps1Save,
-        char side, bool isPs1)
+        string? cardPath,
+        IReadOnlyList<SaveEntry> ps2Saves,
+        IReadOnlyList<Ps1SaveEntry> ps1Saves,
+        char side,
+        bool isPs1)
     {
-        if (cardPath is null) return;
+        if (cardPath is null)
+            return;
 
-        var choice = ShowNewCardTypeDialog(
-            "ADD TO SAVE LIBRARY",
-            "Store an individual save or preserve the complete memory card.",
-            new[]
-            {
-                new CardChoice(FindResource("IconStoreCard") as ImageSource,
-                    "Store Save", "Export and store the selected game save.", 1),
-                new CardChoice(FindResource("IconStoreSave") as ImageSource,
-                    "Store Card", "Copy the complete memory card into the library.", 2)
-            },
-            "Add to Save Library");
+        var selectedCount =
+            isPs1
+                ? ps1Saves.Count
+                : ps2Saves.Count;
+
+        var choice =
+            ShowNewCardTypeDialog(
+                "ADD TO SAVE LIBRARY",
+                selectedCount > 1
+                    ? $"Store the {selectedCount} selected saves or preserve the complete memory card."
+                    : "Store an individual save or preserve the complete memory card.",
+                new[]
+                {
+                    new CardChoice(
+                        FindResource("IconStoreCard") as ImageSource,
+                        selectedCount > 1 ? "Store Saves" : "Store Save",
+                        selectedCount > 1
+                            ? $"Export and store all {selectedCount} selected game saves."
+                            : "Export and store the selected game save.",
+                        1),
+                    new CardChoice(
+                        FindResource("IconStoreSave") as ImageSource,
+                        "Store Card",
+                        "Copy the complete memory card into the library.",
+                        2)
+                },
+                "Add to Save Library");
 
         if (choice == 1)
         {
+            if (selectedCount == 0)
+            {
+                MessageBox.Show(
+                    isPs1
+                        ? "Select one or more PS1 saves first."
+                        : "Select one or more PS2 saves first.",
+                    "Store Save",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
             if (isPs1)
             {
-                if (ps1Save is null)
-                {
-                    MessageBox.Show("Select a PS1 save first.","Store Save",
-                        MessageBoxButton.OK,MessageBoxImage.Information);
-                    return;
-                }
-                await AddPs1SaveToLibraryAsync(cardPath,ps1Save);
+                await AddPs1SavesToLibraryAsync(
+                    cardPath,
+                    ps1Saves);
             }
             else
             {
-                if (ps2Save is null)
-                {
-                    MessageBox.Show("Select a PS2 save first.","Store Save",
-                        MessageBoxButton.OK,MessageBoxImage.Information);
-                    return;
-                }
-                await AddCardSaveToLibraryAsync(cardPath,ps2Save,side);
+                await AddPs2SavesToLibraryAsync(
+                    cardPath,
+                    ps2Saves,
+                    side);
             }
         }
         else if (choice == 2)
         {
-            await StoreMemoryCardInLibraryAsync(cardPath,isPs1,side);
+            await StoreMemoryCardInLibraryAsync(
+                cardPath,
+                isPs1,
+                side);
+        }
+    }
+
+    private async Task AddPs2SavesToLibraryAsync(
+        string cardPath,
+        IReadOnlyList<SaveEntry> saves,
+        char side)
+    {
+        var temporaryRoot =
+            Path.Combine(
+                Path.GetTempPath(),
+                "PSM-CARD-LIBRARY-BATCH-" +
+                Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryRoot);
+
+        var added = 0;
+        var duplicates = 0;
+
+        try
+        {
+            SetBusy(
+                true,
+                $"Adding {saves.Count} PS2 save(s) to Save Library...");
+
+            foreach (var save in saves)
+            {
+                var temporaryPsu =
+                    Path.Combine(
+                        temporaryRoot,
+                        SanitizeUniversalFileName(
+                            save.DirectoryId) +
+                        "-" +
+                        Guid.NewGuid().ToString("N") +
+                        ".psu");
+
+                await _engine.ExportPsuAsync(
+                    cardPath,
+                    save.DirectoryId,
+                    temporaryPsu);
+
+                var result =
+                    await _saveLibraryService.ImportAsync(
+                        temporaryPsu,
+                        _saveLibraryIndex);
+
+                if (result.Duplicate is not null)
+                {
+                    duplicates++;
+                    Log(
+                        $"Card {side} save already in library: " +
+                        save.DirectoryId);
+                    continue;
+                }
+
+                added++;
+                await LoadSaveLibraryIconAsync(
+                    result.Entry);
+
+                Log(
+                    $"Added Card {side} save to library: " +
+                    save.DirectoryId);
+            }
+
+            ApplySaveLibraryFilter();
+
+            LibraryFooterStatus.Text =
+                $"Added {added} PS2 save(s) from Card {side}" +
+                (duplicates > 0
+                    ? $" • {duplicates} already in library"
+                    : string.Empty) +
+                ".";
+
+            MessageBox.Show(
+                $"Save Library update complete.\n\n" +
+                $"Added: {added}\n" +
+                $"Already in library: {duplicates}",
+                "Save Library",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            Log(
+                $"Batch add from PS2 Card {side} failed: " +
+                ex.Message);
+
+            MessageBox.Show(
+                ex.Message,
+                "Add to Save Library Failed",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(
+                    temporaryRoot,
+                    true);
+            }
+            catch { }
+
+            SetBusy(false, "Ready.");
         }
     }
 
@@ -5725,11 +5959,133 @@ await LoadSaveLibraryIconAsync(result.Entry);
         }
     }
 
-    private async void AddLibraryPs1A_Click(object sender, RoutedEventArgs e) =>
-        await ShowStoreLibraryChoiceAsync(_ps1PathA, null, Ps1CardAList.SelectedItem as Ps1SaveEntry, 'A', true);
+    private async void AddLibraryPs1A_Click(
+        object sender,
+        RoutedEventArgs e) =>
+        await ShowStoreLibraryChoiceAsync(
+            _ps1PathA,
+            Array.Empty<SaveEntry>(),
+            GetSelectedPs1CardSaves(Ps1CardAList),
+            'A',
+            true);
 
-    private async void AddLibraryPs1B_Click(object sender, RoutedEventArgs e) =>
-        await ShowStoreLibraryChoiceAsync(_ps1PathB, null, Ps1CardBList.SelectedItem as Ps1SaveEntry, 'B', true);
+    private async void AddLibraryPs1B_Click(
+        object sender,
+        RoutedEventArgs e) =>
+        await ShowStoreLibraryChoiceAsync(
+            _ps1PathB,
+            Array.Empty<SaveEntry>(),
+            GetSelectedPs1CardSaves(Ps1CardBList),
+            'B',
+            true);
+
+    private async Task AddPs1SavesToLibraryAsync(
+        string cardPath,
+        IReadOnlyList<Ps1SaveEntry> saves)
+    {
+        var temporaryRoot =
+            Path.Combine(
+                Path.GetTempPath(),
+                "PSM-PS1-LIBRARY-BATCH-" +
+                Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryRoot);
+
+        var added = 0;
+        var duplicates = 0;
+
+        try
+        {
+            SetBusy(
+                true,
+                $"Adding {saves.Count} PS1 save(s) to Save Library...");
+
+            foreach (var save in saves)
+            {
+                var safeTitle =
+                    SanitizeUniversalFileName(
+                        string.IsNullOrWhiteSpace(
+                            save.Title)
+                            ? save.ProductCode
+                            : save.Title);
+
+                var packagePath =
+                    Path.Combine(
+                        temporaryRoot,
+                        safeTitle +
+                        "-" +
+                        Guid.NewGuid().ToString("N") +
+                        ".ps1save");
+
+                await _ps1CardService.ExportSavePackageAsync(
+                    cardPath,
+                    save,
+                    packagePath);
+
+                var result =
+                    await _saveLibraryService.ImportAsync(
+                        packagePath,
+                        _saveLibraryIndex);
+
+                if (result.Duplicate is not null)
+                {
+                    duplicates++;
+                    Log(
+                        $"PS1 save already in library: " +
+                        save.FileName);
+                    continue;
+                }
+
+                result.Entry.IconImage =
+                    save.IconImage;
+                added++;
+
+                Log(
+                    $"Added PS1 save to library: " +
+                    save.FileName);
+            }
+
+            ApplySaveLibraryFilter();
+
+            LibraryFooterStatus.Text =
+                $"Added {added} PS1 save(s)" +
+                (duplicates > 0
+                    ? $" • {duplicates} already in library"
+                    : string.Empty) +
+                ".";
+
+            MessageBox.Show(
+                $"Save Library update complete.\n\n" +
+                $"Added: {added}\n" +
+                $"Already in library: {duplicates}",
+                "Save Library",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            Log(
+                "Batch add from PS1 card failed: " +
+                ex.Message);
+
+            MessageBox.Show(
+                ex.Message,
+                "Add to Save Library Failed",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(
+                    temporaryRoot,
+                    true);
+            }
+            catch { }
+
+            SetBusy(false, "Ready.");
+        }
+    }
 
     private async Task AddPs1SaveToLibraryAsync(
         string cardPath,

@@ -31,6 +31,9 @@ Save Library:
 Generated list icons and preview images:
 %LocalAppData%\PlayStationSaveManager\Cache
 
+Logs:
+%LocalAppData%\PlayStationSaveManager\Logs
+
 The cache may be deleted safely and will be recreated when needed.
 
 -FEATURES-

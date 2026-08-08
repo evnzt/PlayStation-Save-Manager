@@ -920,6 +920,7 @@
                             </Grid>
 
                             <ListView x:Name="CardAList"
+                                      SelectionMode="Extended"
                                       Grid.Row="4"
                                       SelectionChanged="CardAList_SelectionChanged">
                                 <ListView.View><GridView ColumnHeaderContainerStyle="{StaticResource HiddenSaveGridHeader}">
@@ -1183,6 +1184,7 @@
                             </Grid>
 
                             <ListView x:Name="CardBList"
+                                      SelectionMode="Extended"
                                       Grid.Row="4"
                                       SelectionChanged="CardBList_SelectionChanged">
                                 <ListView.View><GridView ColumnHeaderContainerStyle="{StaticResource HiddenSaveGridHeader}">
@@ -1433,6 +1435,7 @@
                             </Grid>
 
                             <ListView x:Name="Ps1CardAList"
+                                      SelectionMode="Extended"
                                       Grid.Row="4"
                                       ItemContainerStyle="{StaticResource SaveLibraryItemStyle}"
                                       SelectionChanged="Ps1CardSelectionChanged"
@@ -1728,6 +1731,7 @@
                             </Grid>
 
                             <ListView x:Name="Ps1CardBList"
+                                      SelectionMode="Extended"
                                       Grid.Row="4"
                                       ItemContainerStyle="{StaticResource SaveLibraryItemStyle}"
                                       SelectionChanged="Ps1CardSelectionChanged"
@@ -2975,7 +2979,44 @@
                     </Border>
                 </Grid>
             </TabItem>
-            <TabItem><TabItem.Header><StackPanel Orientation="Horizontal"><Image Source="{StaticResource IconClipboard}" Style="{StaticResource TabIcon}"/><TextBlock Text="Activity Log" VerticalAlignment="Center"/></StackPanel></TabItem.Header><Grid Margin="18"><TextBox x:Name="ActivityLog" Background="#060A0F" Foreground="#BBD3EF" FontFamily="Consolas" FontSize="13" IsReadOnly="True" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap"/></Grid></TabItem>
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <Image Source="{StaticResource IconClipboard}" Style="{StaticResource TabIcon}"/>
+                        <TextBlock Text="Activity Log" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </TabItem.Header>
+                <Grid Margin="18">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Right"
+                                Margin="0,0,0,10">
+                        <Button Click="OpenLogsFolder_Click"
+                                Padding="12,7"
+                                Margin="0">
+                            <StackPanel Orientation="Horizontal">
+                                <Image Source="{StaticResource IconDrive}"
+                                       Style="{StaticResource ButtonIcon}"/>
+                                <TextBlock Text="Open Logs Folder"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                    <TextBox x:Name="ActivityLog"
+                             Grid.Row="1"
+                             Background="#060A0F"
+                             Foreground="#BBD3EF"
+                             FontFamily="Consolas"
+                             FontSize="13"
+                             IsReadOnly="True"
+                             AcceptsReturn="True"
+                             VerticalScrollBarVisibility="Auto"
+                             TextWrapping="Wrap"/>
+                </Grid>
+            </TabItem>
 
             <TabItem><TabItem.Header><StackPanel Orientation="Horizontal"><Image Source="{StaticResource IconNews}" Style="{StaticResource TabIcon}"/><TextBlock Text="About" VerticalAlignment="Center"/></StackPanel></TabItem.Header>
                 <Grid Margin="40">
