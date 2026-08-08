@@ -1362,8 +1362,226 @@ public partial class MainWindow : Window
     private async void PreviewB_Click(object sender, RoutedEventArgs e) =>
         await SelectPreviewAsync('B', CardBList.SelectedItem as SaveEntry);
 
-    private async void CopyAToB_Click(object sender, RoutedEventArgs e) { if (_pathA is not null && _pathB is not null && CardAList.SelectedItem is SaveEntry save) await TransferAsync(_pathA, _pathB, save, 'B'); }
-    private async void CopyBToA_Click(object sender, RoutedEventArgs e) { if (_pathA is not null && _pathB is not null && CardBList.SelectedItem is SaveEntry save) await TransferAsync(_pathB, _pathA, save, 'A'); }
+    private async void CopyAToB_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_pathA is not null &&
+            _pathB is not null)
+        {
+            await TransferSelectedPs2SavesAsync(
+                _pathA,
+                _pathB,
+                GetSelectedPs2CardSaves(CardAList),
+                'B');
+        }
+    }
+
+    private async void CopyBToA_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_pathA is not null &&
+            _pathB is not null)
+        {
+            await TransferSelectedPs2SavesAsync(
+                _pathB,
+                _pathA,
+                GetSelectedPs2CardSaves(CardBList),
+                'A');
+        }
+    }
+
+    private async Task TransferSelectedPs2SavesAsync(
+        string source,
+        string destination,
+        IReadOnlyList<SaveEntry> saves,
+        char destinationSide)
+    {
+        if (saves.Count == 0)
+            return;
+
+        if (saves.Count == 1)
+        {
+            await TransferAsync(
+                source,
+                destination,
+                saves[0],
+                destinationSide);
+            return;
+        }
+
+        var confirmation =
+            MessageBox.Show(
+                $"Copy {saves.Count} selected PS2 saves to Card {destinationSide}?\n\n" +
+                "PSM will create one backup of the destination card before committing the transfer.",
+                "Confirm PS2 Save Transfer",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+        if (confirmation != MessageBoxResult.Yes)
+            return;
+
+        var temporaryDirectory =
+            Path.Combine(
+                Path.GetTempPath(),
+                "PSAM-BATCH-" +
+                Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+
+        try
+        {
+            SetBusy(
+                true,
+                $"Transferring {saves.Count} PS2 saves...");
+
+            VerifiedBanner.Visibility =
+                Visibility.Collapsed;
+
+            var destinationIsFolder =
+                Directory.Exists(destination);
+
+            var temporaryCard =
+                destinationIsFolder
+                    ? Path.Combine(
+                        temporaryDirectory,
+                        "FolderCard")
+                    : Path.Combine(
+                        temporaryDirectory,
+                        Path.GetFileName(destination));
+
+            if (destinationIsFolder)
+                CopyDirectory(destination, temporaryCard);
+            else
+                File.Copy(destination, temporaryCard, true);
+
+            foreach (var save in saves)
+            {
+                var psu =
+                    Path.Combine(
+                        temporaryDirectory,
+                        SanitizeUniversalFileName(
+                            save.DirectoryId) +
+                        "-" +
+                        Guid.NewGuid().ToString("N") +
+                        ".psu");
+
+                Log(
+                    $"Exporting {save.DirectoryId} from source card.");
+
+                await _engine.ExportPsuAsync(
+                    source,
+                    save.DirectoryId,
+                    psu);
+
+                if (ReplaceExisting.IsChecked == true)
+                {
+                    await _engine.DeleteAsync(
+                        temporaryCard,
+                        save.DirectoryId);
+                }
+
+                await _engine.ImportAsync(
+                    temporaryCard,
+                    psu);
+            }
+
+            Log(
+                "Verifying temporary destination card.");
+
+            await _engine.CheckAsync(
+                temporaryCard);
+
+            var verifiedSaves =
+                await _engine.ReadDirectoryAsync(
+                    temporaryCard);
+
+            var missing =
+                saves.Where(
+                    selected =>
+                        !verifiedSaves.Any(
+                            candidate =>
+                                candidate.DirectoryId.Equals(
+                                    selected.DirectoryId,
+                                    StringComparison.OrdinalIgnoreCase)))
+                    .ToArray();
+
+            if (missing.Length > 0)
+            {
+                throw new InvalidDataException(
+                    $"{missing.Length} selected save(s) were not present after transfer verification.");
+            }
+
+            var backup =
+                destinationIsFolder
+                    ? CreateFolderBackup(destination)
+                    : CreateBackup(destination);
+
+            if (destinationIsFolder)
+            {
+                Directory.Delete(
+                    destination,
+                    recursive: true);
+                CopyDirectory(
+                    temporaryCard,
+                    destination);
+            }
+            else
+            {
+                File.Copy(
+                    temporaryCard,
+                    destination,
+                    true);
+            }
+
+            await LoadCardAsync(
+                destination,
+                destinationSide,
+                saves[^1].DirectoryId,
+                allowWhileBusy: true);
+
+            VerifiedText.Text =
+                $"TRANSFER VERIFIED - {saves.Count} saves copied successfully";
+            VerifiedBanner.Visibility =
+                Visibility.Visible;
+            StatusText.Text =
+                "Transfer verified.";
+
+            Log(
+                $"Batch transfer committed. {saves.Count} saves. Backup: {backup}");
+
+            MessageBox.Show(
+                $"{saves.Count} PS2 saves were copied and verified successfully.\n\n" +
+                $"Backup:\n{backup}",
+                "Transfer Verified",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            Log(
+                $"Batch PS2 transfer failed: {ex.Message}");
+
+            MessageBox.Show(
+                ex.Message,
+                "Transfer Failed",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(
+                    temporaryDirectory,
+                    true);
+            }
+            catch { }
+
+            SetBusy(false, "Ready.");
+            RefreshButtons();
+        }
+    }
 
     private async void ExportA_Click(object sender, RoutedEventArgs e) => await ExportSelectedAsync(_pathA, CardAList.SelectedItem as SaveEntry);
     private async void ExportB_Click(object sender, RoutedEventArgs e) => await ExportSelectedAsync(_pathB, CardBList.SelectedItem as SaveEntry);
@@ -5681,12 +5899,11 @@ await LoadSaveLibraryIconAsync(result.Entry);
         RoutedEventArgs e)
     {
         if (_ps1PathA is not null &&
-            _ps1PathB is not null &&
-            Ps1CardAList.SelectedItem is Ps1SaveEntry save)
+            _ps1PathB is not null)
         {
-            await CopyPs1SaveAsync(
+            await CopySelectedPs1SavesAsync(
                 _ps1PathA,
-                save,
+                GetSelectedPs1CardSaves(Ps1CardAList),
                 _ps1PathB,
                 'B');
         }
@@ -5697,14 +5914,129 @@ await LoadSaveLibraryIconAsync(result.Entry);
         RoutedEventArgs e)
     {
         if (_ps1PathB is not null &&
-            _ps1PathA is not null &&
-            Ps1CardBList.SelectedItem is Ps1SaveEntry save)
+            _ps1PathA is not null)
         {
-            await CopyPs1SaveAsync(
+            await CopySelectedPs1SavesAsync(
                 _ps1PathB,
-                save,
+                GetSelectedPs1CardSaves(Ps1CardBList),
                 _ps1PathA,
                 'A');
+        }
+    }
+
+    private async Task CopySelectedPs1SavesAsync(
+        string sourcePath,
+        IReadOnlyList<Ps1SaveEntry> saves,
+        string destinationPath,
+        char destinationSide)
+    {
+        if (saves.Count == 0)
+            return;
+
+        if (saves.Count == 1)
+        {
+            await CopyPs1SaveAsync(
+                sourcePath,
+                saves[0],
+                destinationPath,
+                destinationSide);
+            return;
+        }
+
+        var requiredBlocks =
+            saves.Sum(save => save.BlocksUsed);
+
+        var confirmation =
+            MessageBox.Show(
+                $"Copy {saves.Count} selected PS1 saves ({requiredBlocks} blocks) " +
+                $"to Card {destinationSide}?\n\n" +
+                "PSM will verify the destination after all selected saves are copied.",
+                "Confirm PS1 Save Transfer",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+        if (confirmation != MessageBoxResult.Yes)
+            return;
+
+        try
+        {
+            SetBusy(
+                true,
+                $"Copying {saves.Count} PS1 saves...");
+
+            foreach (var save in saves)
+            {
+                await _ps1CardService.CopySaveAsync(
+                    sourcePath,
+                    save,
+                    destinationPath,
+                    ReplaceExistingPs1.IsChecked == true);
+            }
+
+            var verified =
+                await _ps1CardService.ReadAsync(
+                    destinationPath);
+
+            var active =
+                verified.Saves
+                    .Where(save => !save.IsDeleted)
+                    .ToArray();
+
+            var missing =
+                saves.Where(
+                    selected =>
+                        !active.Any(
+                            candidate =>
+                                candidate.FileName.Equals(
+                                    selected.FileName,
+                                    StringComparison.OrdinalIgnoreCase) ||
+                                (!string.IsNullOrWhiteSpace(selected.ProductCode) &&
+                                 candidate.ProductCode.Equals(
+                                    selected.ProductCode,
+                                    StringComparison.OrdinalIgnoreCase))))
+                    .ToArray();
+
+            if (missing.Length > 0)
+            {
+                throw new InvalidDataException(
+                    $"{missing.Length} selected PS1 save(s) were not present after transfer verification.");
+            }
+
+            await LoadPs1CardAsync(
+                destinationPath,
+                destinationSide,
+                saves[^1].FileName);
+
+            VerifiedText.Text =
+                $"PS1 TRANSFER VERIFIED • {saves.Count} saves copied successfully";
+            VerifiedBanner.Visibility =
+                Visibility.Visible;
+
+            Log(
+                $"PS1 batch transfer verified: {saves.Count} saves -> {destinationPath}");
+
+            MessageBox.Show(
+                $"{saves.Count} PS1 saves were copied and verified.\n\n" +
+                "Timestamped destination backups were created by Safe Transaction Mode.",
+                "PS1 Transfer Verified",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            Log(
+                "PS1 batch transfer failed: " +
+                ex.Message);
+
+            MessageBox.Show(
+                ex.Message,
+                "PS1 Transfer Failed",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            SetBusy(false, "Ready.");
         }
     }
 
@@ -7012,35 +7344,59 @@ await LoadSaveLibraryIconAsync(result.Entry);
         if (_saveLibraryContentMode ==
             SaveLibraryContentMode.MemoryCards)
         {
-            if (MemoryCardLibraryList.SelectedItem is not
-                MemoryCardLibraryEntry cardEntry)
+            var selectedCards =
+                MemoryCardLibraryList.SelectedItems
+                    .Cast<MemoryCardLibraryEntry>()
+                    .ToArray();
+
+            if (selectedCards.Length == 0 &&
+                MemoryCardLibraryList.SelectedItem is
+                    MemoryCardLibraryEntry singleCard)
             {
-                return;
+                selectedCards = [singleCard];
             }
+
+            if (selectedCards.Length == 0)
+                return;
 
             try
             {
-                await _memoryCardLibraryService
-                    .ToggleFavoriteAsync(
-                        cardEntry,
-                        _memoryCardLibraryIndex);
+                var makeFavorite =
+                    selectedCards.Any(
+                        entry => !entry.IsFavorite);
+
+                foreach (var entry in
+                    selectedCards.Where(
+                        entry =>
+                            entry.IsFavorite != makeFavorite))
+                {
+                    await _memoryCardLibraryService
+                        .ToggleFavoriteAsync(
+                            entry,
+                            _memoryCardLibraryIndex);
+                }
 
                 RefreshMemoryCardLibraryView();
-                MemoryCardLibraryList.Items.Refresh();
-                MemoryCardLibraryList.SelectedItem =
-                    cardEntry;
-                MemoryCardLibraryList.ScrollIntoView(
-                    cardEntry);
+
+                foreach (var entry in selectedCards)
+                {
+                    if (MemoryCardLibraryList.Items.Contains(entry))
+                        MemoryCardLibraryList.SelectedItems.Add(entry);
+                }
 
                 LibraryFavoriteButtonText.Text =
-                    cardEntry.IsFavorite
+                    makeFavorite
                         ? "Remove Favorite"
                         : "Add Favorite";
 
                 LibraryFooterStatus.Text =
-                    cardEntry.IsFavorite
-                        ? $"Added {cardEntry.DisplayName} to favorites."
-                        : $"Removed {cardEntry.DisplayName} from favorites.";
+                    selectedCards.Length == 1
+                        ? (makeFavorite
+                            ? $"Added {selectedCards[0].DisplayName} to favorites."
+                            : $"Removed {selectedCards[0].DisplayName} from favorites.")
+                        : (makeFavorite
+                            ? $"Added {selectedCards.Length} selected memory cards to favorites."
+                            : $"Removed {selectedCards.Length} selected memory cards from favorites.");
             }
             catch (Exception ex)
             {
@@ -7850,18 +8206,34 @@ await LoadSaveLibraryIconAsync(result.Entry);
         if (_saveLibraryContentMode ==
             SaveLibraryContentMode.MemoryCards)
         {
-            if (MemoryCardLibraryList.SelectedItem is not
-                MemoryCardLibraryEntry cardEntry)
+            var selectedCards =
+                MemoryCardLibraryList.SelectedItems
+                    .Cast<MemoryCardLibraryEntry>()
+                    .ToArray();
+
+            if (selectedCards.Length == 0 &&
+                MemoryCardLibraryList.SelectedItem is
+                    MemoryCardLibraryEntry singleCard)
             {
-                return;
+                selectedCards = [singleCard];
             }
+
+            if (selectedCards.Length == 0)
+                return;
+
+            var cardDescription =
+                selectedCards.Length == 1
+                    ? selectedCards[0].DisplayName
+                    : $"{selectedCards.Length} selected memory cards";
 
             var cardConfirmation =
                 MessageBox.Show(
-                    $"Remove {cardEntry.DisplayName} from the Memory Card Library?\n\n" +
-                    "This permanently removes the library copy only. " +
-                    "The original memory card is not changed.",
-                    "Remove Library Memory Card",
+                    $"Remove {cardDescription} from the Memory Card Library?\n\n" +
+                    "This permanently removes the library copies only. " +
+                    "The original memory cards are not changed.",
+                    selectedCards.Length == 1
+                        ? "Remove Library Memory Card"
+                        : "Remove Library Memory Cards",
                     MessageBoxButton.YesNo,
                     MessageBoxImage.Warning);
 
@@ -7873,20 +8245,26 @@ await LoadSaveLibraryIconAsync(result.Entry);
 
             try
             {
-                await _memoryCardLibraryService.RemoveAsync(
-                    cardEntry,
-                    _memoryCardLibraryIndex);
+                foreach (var entry in selectedCards)
+                {
+                    await _memoryCardLibraryService.RemoveAsync(
+                        entry,
+                        _memoryCardLibraryIndex);
+                }
 
                 RefreshMemoryCardLibraryView();
                 ResetMemoryCardLibraryMetadata();
                 UpdateLibrarySummary();
 
                 LibraryFooterStatus.Text =
-                    "Memory card removed from library.";
+                    selectedCards.Length == 1
+                        ? "Memory card removed from library."
+                        : $"{selectedCards.Length} memory cards removed from library.";
 
                 Log(
-                    $"Memory Card Library removed: " +
-                    $"{cardEntry.DisplayName}");
+                    $"Memory Card Library removed " +
+                    $"{selectedCards.Length} entr" +
+                    $"{(selectedCards.Length == 1 ? "y" : "ies")}.");
             }
             catch (Exception ex)
             {
@@ -8121,8 +8499,8 @@ await LoadSaveLibraryIconAsync(result.Entry);
         {
             WizardDetectedType.Text =
                 $"PCSX2 folder-card save detected: {folderSaveId}";
-            WizardCardAButton.Content = "Import into Card A";
-            WizardCardBButton.Content = "Import into Card B";
+            WizardCardAText.Text = "Import into Card A";
+            WizardCardBText.Text = "Import into Card B";
             WizardExplanation.Text =
                 "PSM can repackage this PCSX2 directory-ID folder as a standard PSU save, " +
                 "import it into either loaded PS2 card, send it to Universal Converter, " +
@@ -8132,8 +8510,8 @@ await LoadSaveLibraryIconAsync(result.Entry);
         else if (_wizardSourceIsCard)
         {
             WizardDetectedType.Text = $"Complete memory card detected: {format.DisplayName}";
-            WizardCardAButton.Content = "Open as Card A";
-            WizardCardBButton.Content = "Open as Card B";
+            WizardCardAText.Text = "Open as Card A";
+            WizardCardBText.Text = "Open as Card B";
             WizardExplanation.Text =
                 "This is a complete memory card. You can open it directly, convert it, " +
                 "or preserve it in the Memory Card Library.";
@@ -8142,8 +8520,8 @@ await LoadSaveLibraryIconAsync(result.Entry);
         else if (_wizardSourceIsReadablePackage)
         {
             WizardDetectedType.Text = $"Packaged save detected: {format.DisplayName}";
-            WizardCardAButton.Content = "Import into Card A";
-            WizardCardBButton.Content = "Import into Card B";
+            WizardCardAText.Text = "Import into Card A";
+            WizardCardBText.Text = "Import into Card B";
             WizardExplanation.Text =
                 "This packaged save can be safely imported into either loaded card, " +
                 "converted to another verified format, or added to the Save Library.";
@@ -8152,8 +8530,8 @@ await LoadSaveLibraryIconAsync(result.Entry);
         else
         {
             WizardDetectedType.Text = $"Legacy format recognized: {format.DisplayName}";
-            WizardCardAButton.Content = "Import into Card A";
-            WizardCardBButton.Content = "Import into Card B";
+            WizardCardAText.Text = "Import into Card A";
+            WizardCardBText.Text = "Import into Card B";
             WizardExplanation.Text =
                 "PSM recognizes this legacy format, but its safe parser is not integrated yet. " +
                 "The file can be sent to Universal Converter to view its current adapter status.";
@@ -8192,8 +8570,8 @@ await LoadSaveLibraryIconAsync(result.Entry);
             ".PSU  •  .MAX  •  .CBS  •  .XPS  •  .SPS  •  .PSV  •  .NPO  •  .P2M  •  .MC2  •  .PS2  •  .MCR  •  .SRM  •  .BIN  •  .MCD  •  .MC  •  .GME  •  .MEM  •  .VGS  •  .DDF  •  .PS  •  .PSM  •  .MCI  •  .VMP  •  .VM1";
         WizardDetectedType.Text = "Choose a file to see available actions.";
         WizardExplanation.Text = "No source selected.";
-        WizardCardAButton.Content = "Import into Card A";
-        WizardCardBButton.Content = "Import into Card B";
+        WizardCardAText.Text = "Import into Card A";
+        WizardCardBText.Text = "Import into Card B";
         SetWizardActions(false, false, false, false);
     }
 

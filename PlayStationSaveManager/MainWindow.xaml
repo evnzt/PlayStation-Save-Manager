@@ -179,6 +179,12 @@
                                  Geometry="M96,36 L48,36 C45.788,36 44,37.788 44,40 L44,104 C44,106.208 45.788,108 48,108 L96,108 C98.212,108 100,106.208 100,104 L100,40 C100,37.792 98.212,36 96,36 Z M92,100 L52,100 L52,44 L92,44 L92,100 Z"/>
             </DrawingImage.Drawing>
         </DrawingImage>
+                <DrawingImage x:Key="IconOpenLogs">
+            <DrawingImage.Drawing>
+                <GeometryDrawing Brush="#EFEFEF"
+                                 Geometry="M96,36 L48,36 C45.788,36 44,37.788 44,40 L44,104 C44,106.208 45.788,108 48,108 L96,108 C98.212,108 100,106.208 100,104 L100,40 C100,37.792 98.212,36 96,36 Z M84,92 L60,92 L60,84 L84,84 L84,92 Z M84,76 L60,76 L60,68 L84,68 L84,76 Z M84,60 L60,60 L60,52 L84,52 L84,60 Z"/>
+            </DrawingImage.Drawing>
+        </DrawingImage>
         <DrawingImage x:Key="IconRemoveLibrary">
             <DrawingImage.Drawing>
                 <GeometryDrawing Brush="#EFEFEF"
@@ -2039,6 +2045,7 @@
                             </ListView>
 
                             <ListView x:Name="MemoryCardLibraryList"
+                                      SelectionMode="Extended"
                                       ItemsSource="{Binding MemoryCardLibraryEntries, RelativeSource={RelativeSource AncestorType=Window}}"
                                       ItemContainerStyle="{StaticResource SaveLibraryItemStyle}"
                                       Visibility="Collapsed"
@@ -2818,7 +2825,8 @@
                                             HorizontalAlignment="Center">
                                     <Image Source="{StaticResource IconWizardCard}"
                                            Style="{StaticResource ButtonIcon}"/>
-                                    <TextBlock Text="Import into Card A"
+                                    <TextBlock x:Name="WizardCardAText"
+                                               Text="Import into Card A"
                                                VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
@@ -2833,7 +2841,8 @@
                                             HorizontalAlignment="Center">
                                     <Image Source="{StaticResource IconWizardCard}"
                                            Style="{StaticResource ButtonIcon}"/>
-                                    <TextBlock Text="Import into Card B"
+                                    <TextBlock x:Name="WizardCardBText"
+                                               Text="Import into Card B"
                                                VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
@@ -2998,7 +3007,7 @@
                                 Padding="12,7"
                                 Margin="0">
                             <StackPanel Orientation="Horizontal">
-                                <Image Source="{StaticResource IconDrive}"
+                                <Image Source="{StaticResource IconOpenLogs}"
                                        Style="{StaticResource ButtonIcon}"/>
                                 <TextBlock Text="Open Logs Folder"
                                            VerticalAlignment="Center"/>
