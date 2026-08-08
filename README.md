@@ -3,7 +3,7 @@
 
 # PlayStation Save Manager v1.0.0
 
-![Latest Release](https://img.shields.io/github/v/release/evnzt/PlayStation-Save-Manager?label=Latest%20Release) ![Downloads](https://img.shields.io/github/downloads/evnzt/PlayStation-Save-Manager/total) ![Stars](https://img.shields.io/github/stars/evnzt/PlayStation-Save-Manager?style=social) ![Platform](https://img.shields.io/badge/Platform-Windows-0078D6) ![AI Assisted](https://img.shields.io/badge/AI-Assisted-412991)
+[![Latest Release](https://img.shields.io/github/v/release/evnzt/PlayStation-Save-Manager?label=Latest%20Release)](https://github.com/evnzt/PlayStation-Save-Manager/releases/latest) ![Downloads](https://img.shields.io/github/downloads/evnzt/PlayStation-Save-Manager/total) ![Stars](https://img.shields.io/github/stars/evnzt/PlayStation-Save-Manager?style=social) ![Platform](https://img.shields.io/badge/Platform-Windows-0078D6) ![AI Assisted](https://img.shields.io/badge/AI-Assisted-412991)
 
 Windows utility for managing PlayStation and PlayStation 2 memory cards, save packages, conversions, and backups.
 
