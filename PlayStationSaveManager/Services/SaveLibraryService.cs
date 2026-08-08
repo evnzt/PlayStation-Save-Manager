@@ -19,6 +19,10 @@ public sealed class SaveLibraryService
     private readonly MyMcEngine _engine;
     private readonly string _libraryRoot;
     private readonly string _filesRoot;
+    private readonly string _ps1SavesRoot;
+    private readonly string _ps2SavesRoot;
+    private const string Ps1SavesFolderName = "PS1 Saves";
+    private const string Ps2SavesFolderName = "PS2 Saves";
     private readonly string _indexPath;
     private readonly string _legacyIndexPath;
     private readonly JsonSerializerOptions _jsonOptions = new()
@@ -34,10 +38,13 @@ public sealed class SaveLibraryService
             "PlayStationSaveManager",
             "SaveLibrary");
         _filesRoot = Path.Combine(_libraryRoot, "Files");
+        _ps1SavesRoot = Path.Combine(_libraryRoot, Ps1SavesFolderName);
+        _ps2SavesRoot = Path.Combine(_libraryRoot, Ps2SavesFolderName);
         _indexPath = Path.Combine(_libraryRoot, "game-saves.json");
         _legacyIndexPath = Path.Combine(_libraryRoot, "library.json");
 
-        Directory.CreateDirectory(_filesRoot);
+        Directory.CreateDirectory(_ps1SavesRoot);
+        Directory.CreateDirectory(_ps2SavesRoot);
 
         if (!File.Exists(_indexPath) &&
             File.Exists(_legacyIndexPath))
@@ -115,8 +122,32 @@ public sealed class SaveLibraryService
         File.Move(temporary, _indexPath, true);
     }
 
-    public string GetStoredPath(SaveLibraryEntry entry) =>
-        Path.Combine(_filesRoot, entry.StoredFileName);
+    public string GetStoredPath(SaveLibraryEntry entry)
+    {
+        var organizedPath =
+            Path.Combine(
+                _libraryRoot,
+                entry.StoredFileName);
+
+        if (File.Exists(organizedPath) ||
+            entry.StoredFileName.Contains(
+                Path.DirectorySeparatorChar) ||
+            entry.StoredFileName.Contains(
+                Path.AltDirectorySeparatorChar))
+        {
+            return organizedPath;
+        }
+
+        // Compatibility with libraries created before PS1/PS2 folders.
+        var legacyPath =
+            Path.Combine(
+                _filesRoot,
+                entry.StoredFileName);
+
+        return File.Exists(legacyPath)
+            ? legacyPath
+            : organizedPath;
+    }
 
     public async Task<SaveLibraryImportResult> ImportAsync(
         string sourcePath,
@@ -170,9 +201,35 @@ public sealed class SaveLibraryService
             ? ps1Metadata!.ProductCode
             : metadata!.DirectoryId;
 
-        var storedFileName = CreateAvailableStoredFileName(
-            BuildFriendlySaveFileName(directoryId, description, extension));
-        var destination = Path.Combine(_filesRoot, storedFileName);
+        var categoryName =
+            extension == ".ps1save"
+                ? Ps1SavesFolderName
+                : Ps2SavesFolderName;
+        var categoryRoot =
+            extension == ".ps1save"
+                ? _ps1SavesRoot
+                : _ps2SavesRoot;
+
+        Directory.CreateDirectory(categoryRoot);
+
+        var storedBaseName =
+            CreateAvailableStoredFileName(
+                BuildFriendlySaveFileName(
+                    directoryId,
+                    description,
+                    extension),
+                categoryRoot);
+
+        var storedFileName =
+            Path.Combine(
+                categoryName,
+                storedBaseName);
+
+        var destination =
+            Path.Combine(
+                categoryRoot,
+                storedBaseName);
+
         File.Copy(sourcePath, destination, true);
 
         var file = new FileInfo(sourcePath);
@@ -214,41 +271,74 @@ public sealed class SaveLibraryService
     {
         var changed = false;
 
+        Directory.CreateDirectory(_ps1SavesRoot);
+        Directory.CreateDirectory(_ps2SavesRoot);
+
         foreach (var entry in index.Entries)
         {
-            var oldPath = Path.Combine(_filesRoot, entry.StoredFileName);
-            if (!File.Exists(oldPath))
+            var categoryName =
+                entry.Extension.Equals(
+                    ".ps1save",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? Ps1SavesFolderName
+                    : Ps2SavesFolderName;
+            var categoryRoot =
+                entry.Extension.Equals(
+                    ".ps1save",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? _ps1SavesRoot
+                    : _ps2SavesRoot;
+
+            var currentPath = GetStoredPath(entry);
+            if (!File.Exists(currentPath))
                 continue;
 
-            var desired = BuildFriendlySaveFileName(
-                entry.DirectoryId,
-                entry.ProfileName,
-                entry.Extension);
+            var desiredFileName =
+                BuildFriendlySaveFileName(
+                    entry.DirectoryId,
+                    entry.ProfileName,
+                    entry.Extension);
 
-            if (entry.StoredFileName.Equals(
-                desired,
-                StringComparison.OrdinalIgnoreCase))
+            var desiredName =
+                CreateAvailableStoredFileName(
+                    desiredFileName,
+                    categoryRoot,
+                    currentPath);
+
+            var newPath =
+                Path.Combine(
+                    categoryRoot,
+                    desiredName);
+
+            if (!currentPath.Equals(
+                    newPath,
+                    StringComparison.OrdinalIgnoreCase))
             {
-                continue;
+                Directory.CreateDirectory(categoryRoot);
+                File.Move(currentPath, newPath);
             }
 
-            var newName = CreateAvailableStoredFileName(
-                desired,
-                oldPath);
-            var newPath = Path.Combine(_filesRoot, newName);
+            var newStoredFileName =
+                Path.Combine(
+                    categoryName,
+                    desiredName);
 
-            if (!oldPath.Equals(newPath, StringComparison.OrdinalIgnoreCase))
-                File.Move(oldPath, newPath);
-
-            entry.StoredFileName = newName;
-            changed = true;
+            if (!entry.StoredFileName.Equals(
+                    newStoredFileName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                entry.StoredFileName = newStoredFileName;
+                changed = true;
+            }
         }
 
+        TryDeleteEmptyDirectory(_filesRoot);
         return changed;
     }
 
-    private string CreateAvailableStoredFileName(
+    private static string CreateAvailableStoredFileName(
         string desired,
+        string destinationRoot,
         string? existingPath = null)
     {
         var stem = Path.GetFileNameWithoutExtension(desired);
@@ -256,15 +346,32 @@ public sealed class SaveLibraryService
         var candidate = desired;
         var number = 2;
 
-        while (File.Exists(Path.Combine(_filesRoot, candidate)) &&
-               !Path.Combine(_filesRoot, candidate).Equals(
+        while (File.Exists(Path.Combine(destinationRoot, candidate)) &&
+               !Path.Combine(destinationRoot, candidate).Equals(
                    existingPath,
                    StringComparison.OrdinalIgnoreCase))
         {
-            candidate = $"{stem} ({number++}){extension}";
+            candidate =
+                $"{stem} ({number++}){extension}";
         }
 
         return candidate;
+    }
+
+    private static void TryDeleteEmptyDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path) &&
+                !Directory.EnumerateFileSystemEntries(path).Any())
+            {
+                Directory.Delete(path);
+            }
+        }
+        catch
+        {
+            // Cosmetic cleanup only.
+        }
     }
 
     private static string BuildFriendlySaveFileName(

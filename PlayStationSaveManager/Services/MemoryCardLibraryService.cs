@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -18,6 +18,10 @@ public sealed class MemoryCardLibraryService
 {
     private readonly string _root;
     private readonly string _cardsRoot;
+    private readonly string _ps1CardsRoot;
+    private readonly string _ps2CardsRoot;
+    private const string Ps1CardsFolderName = "PS1 Memory Cards";
+    private const string Ps2CardsFolderName = "PS2 Memory Cards";
     private readonly string _indexPath;
     private readonly JsonSerializerOptions _options = new() { WriteIndented = true };
 
@@ -27,8 +31,11 @@ public sealed class MemoryCardLibraryService
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PlayStationSaveManager", "SaveLibrary");
         _cardsRoot = Path.Combine(_root, "MemoryCards");
+        _ps1CardsRoot = Path.Combine(_root, Ps1CardsFolderName);
+        _ps2CardsRoot = Path.Combine(_root, Ps2CardsFolderName);
         _indexPath = Path.Combine(_root, "memory-cards.json");
-        Directory.CreateDirectory(_cardsRoot);
+        Directory.CreateDirectory(_ps1CardsRoot);
+        Directory.CreateDirectory(_ps2CardsRoot);
     }
 
     public async Task<MemoryCardLibraryIndex> LoadAsync(
@@ -60,6 +67,7 @@ public sealed class MemoryCardLibraryService
     public async Task<MemoryCardStoreResult> StoreAsync(
         string sourcePath, string platform, string cardType,
         int saveCount, long? capacityBytes,
+        string? displayNameOverride = null,
         CancellationToken cancellationToken = default)
     {
         var folder = Directory.Exists(sourcePath);
@@ -77,11 +85,49 @@ public sealed class MemoryCardLibraryService
             return new MemoryCardStoreResult(duplicate, duplicate);
 
         var id = Guid.NewGuid().ToString("N");
-        var displayName = Path.GetFileName(sourcePath.TrimEnd(
+        var sourceName = Path.GetFileName(sourcePath.TrimEnd(
             Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         var extension = folder ? string.Empty : Path.GetExtension(sourcePath).ToLowerInvariant();
-        var storedName = CreateAvailableStoredName(displayName, folder);
-        var destination = Path.Combine(_cardsRoot, storedName);
+        var displayName = string.IsNullOrWhiteSpace(displayNameOverride)
+            ? sourceName
+            : SanitizeFileName(displayNameOverride.Trim());
+        if (!folder && displayName.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
+            displayName = Path.GetFileNameWithoutExtension(displayName);
+        var isPs1 =
+            platform.Contains(
+                "PlayStation",
+                StringComparison.OrdinalIgnoreCase) &&
+            !platform.Contains(
+                "2",
+                StringComparison.OrdinalIgnoreCase);
+
+        var categoryName =
+            isPs1
+                ? Ps1CardsFolderName
+                : Ps2CardsFolderName;
+        var categoryRoot =
+            isPs1
+                ? _ps1CardsRoot
+                : _ps2CardsRoot;
+
+        Directory.CreateDirectory(categoryRoot);
+
+        var storedBaseName = folder
+            ? displayName
+            : displayName + extension;
+        var storedLeafName =
+            CreateAvailableStoredName(
+                storedBaseName,
+                folder,
+                categoryRoot);
+        var storedName =
+            Path.Combine(
+                categoryName,
+                storedLeafName);
+        var destination =
+            Path.Combine(
+                categoryRoot,
+                storedLeafName);
 
         if (folder) CopyDirectory(sourcePath, destination);
         else File.Copy(sourcePath, destination, true);
@@ -109,67 +155,160 @@ public sealed class MemoryCardLibraryService
     {
         var changed = false;
 
+        Directory.CreateDirectory(_ps1CardsRoot);
+        Directory.CreateDirectory(_ps2CardsRoot);
+
         foreach (var entry in index.Entries)
         {
-            var oldPath = Path.Combine(_cardsRoot, entry.StoredName);
+            var currentPath = GetStoredPath(entry);
             var exists = entry.IsFolderCard
-                ? Directory.Exists(oldPath)
-                : File.Exists(oldPath);
+                ? Directory.Exists(currentPath)
+                : File.Exists(currentPath);
 
             if (!exists)
                 continue;
 
-            var desired = SanitizeFileName(entry.DisplayName);
-            if (entry.StoredName.Equals(desired, StringComparison.OrdinalIgnoreCase))
-                continue;
+            var isPs1 =
+                IsPs1Entry(entry);
+            var categoryName =
+                isPs1
+                    ? Ps1CardsFolderName
+                    : Ps2CardsFolderName;
+            var categoryRoot =
+                isPs1
+                    ? _ps1CardsRoot
+                    : _ps2CardsRoot;
 
-            var newName = CreateAvailableStoredName(
-                desired,
-                entry.IsFolderCard,
-                oldPath);
-            var newPath = Path.Combine(_cardsRoot, newName);
+            var desiredDisplay =
+                SanitizeFileName(
+                    GetExtensionFreeDisplayName(entry));
+            var desired =
+                entry.IsFolderCard
+                    ? desiredDisplay
+                    : desiredDisplay + entry.Extension;
 
-            if (!oldPath.Equals(newPath, StringComparison.OrdinalIgnoreCase))
+            var newLeafName =
+                CreateAvailableStoredName(
+                    desired,
+                    entry.IsFolderCard,
+                    categoryRoot,
+                    currentPath);
+            var newPath =
+                Path.Combine(
+                    categoryRoot,
+                    newLeafName);
+
+            if (!currentPath.Equals(
+                    newPath,
+                    StringComparison.OrdinalIgnoreCase))
             {
+                Directory.CreateDirectory(categoryRoot);
+
                 if (entry.IsFolderCard)
-                    Directory.Move(oldPath, newPath);
+                    Directory.Move(currentPath, newPath);
                 else
-                    File.Move(oldPath, newPath);
+                    File.Move(currentPath, newPath);
             }
 
-            entry.StoredName = newName;
-            changed = true;
+            var newStoredName =
+                Path.Combine(
+                    categoryName,
+                    newLeafName);
+
+            if (!entry.StoredName.Equals(
+                    newStoredName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                entry.StoredName = newStoredName;
+                changed = true;
+            }
+
+            if (!entry.DisplayName.Equals(
+                    desiredDisplay,
+                    StringComparison.Ordinal))
+            {
+                entry.DisplayName = desiredDisplay;
+                changed = true;
+            }
         }
 
+        TryDeleteEmptyDirectory(_cardsRoot);
         return changed;
     }
 
-    private string CreateAvailableStoredName(
+    private static bool IsPs1Entry(
+        MemoryCardLibraryEntry entry) =>
+        entry.Platform.Contains(
+            "PlayStation",
+            StringComparison.OrdinalIgnoreCase) &&
+        !entry.Platform.Contains(
+            "2",
+            StringComparison.OrdinalIgnoreCase);
+
+    private static string GetExtensionFreeDisplayName(
+        MemoryCardLibraryEntry entry)
+    {
+        if (!entry.IsFolderCard &&
+            !string.IsNullOrWhiteSpace(entry.Extension) &&
+            entry.DisplayName.EndsWith(
+                entry.Extension,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetFileNameWithoutExtension(
+                entry.DisplayName);
+        }
+
+        return entry.DisplayName;
+    }
+
+    private static string CreateAvailableStoredName(
         string requestedName,
         bool folder,
+        string destinationRoot,
         string? existingPath = null)
     {
         var safe = SanitizeFileName(requestedName);
-        var extension = folder ? string.Empty : Path.GetExtension(safe);
-        var stem = folder ? safe : Path.GetFileNameWithoutExtension(safe);
+        var extension =
+            folder
+                ? string.Empty
+                : Path.GetExtension(safe);
+        var stem =
+            folder
+                ? safe
+                : Path.GetFileNameWithoutExtension(safe);
         var candidate = safe;
         var number = 2;
 
-        while (StoredPathExists(candidate, folder) &&
-               !Path.Combine(_cardsRoot, candidate).Equals(
-                   existingPath,
-                   StringComparison.OrdinalIgnoreCase))
+        while (StoredPathExists(
+                   destinationRoot,
+                   candidate,
+                   folder) &&
+               !Path.Combine(
+                    destinationRoot,
+                    candidate).Equals(
+                        existingPath,
+                        StringComparison.OrdinalIgnoreCase))
         {
-            candidate = $"{stem} ({number++}){extension}";
+            candidate =
+                $"{stem} ({number++}){extension}";
         }
 
         return candidate;
     }
 
-    private bool StoredPathExists(string name, bool folder)
+    private static bool StoredPathExists(
+        string root,
+        string name,
+        bool folder)
     {
-        var path = Path.Combine(_cardsRoot, name);
-        return folder ? Directory.Exists(path) : File.Exists(path);
+        var path =
+            Path.Combine(
+                root,
+                name);
+
+        return folder
+            ? Directory.Exists(path)
+            : File.Exists(path);
     }
 
     private static string SanitizeFileName(string value)
@@ -181,6 +320,128 @@ public sealed class MemoryCardLibraryService
         return string.IsNullOrWhiteSpace(value)
             ? "Memory Card"
             : value;
+    }
+
+    private static void TryDeleteEmptyDirectory(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path) &&
+                !Directory.EnumerateFileSystemEntries(path).Any())
+            {
+                Directory.Delete(path);
+            }
+        }
+        catch
+        {
+            // Cosmetic cleanup only.
+        }
+    }
+
+    public string GetStoredPath(
+        MemoryCardLibraryEntry entry)
+    {
+        var organizedPath =
+            Path.Combine(
+                _root,
+                entry.StoredName);
+
+        if ((entry.IsFolderCard &&
+             Directory.Exists(organizedPath)) ||
+            (!entry.IsFolderCard &&
+             File.Exists(organizedPath)) ||
+            entry.StoredName.Contains(
+                Path.DirectorySeparatorChar) ||
+            entry.StoredName.Contains(
+                Path.AltDirectorySeparatorChar))
+        {
+            return organizedPath;
+        }
+
+        // Compatibility with libraries created before platform folders.
+        var legacyPath =
+            Path.Combine(
+                _cardsRoot,
+                entry.StoredName);
+
+        return legacyPath;
+    }
+
+    public async Task RenameAsync(
+        MemoryCardLibraryEntry entry,
+        MemoryCardLibraryIndex index,
+        string requestedDisplayName,
+        CancellationToken cancellationToken = default)
+    {
+        var displayName =
+            SanitizeFileName(
+                requestedDisplayName.Trim());
+
+        if (!entry.IsFolderCard &&
+            !string.IsNullOrWhiteSpace(entry.Extension) &&
+            displayName.EndsWith(
+                entry.Extension,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            displayName =
+                Path.GetFileNameWithoutExtension(
+                    displayName);
+        }
+
+        if (string.IsNullOrWhiteSpace(displayName))
+            displayName = "Memory Card";
+
+        var oldPath =
+            GetStoredPath(entry);
+
+        var isPs1 =
+            IsPs1Entry(entry);
+        var categoryName =
+            isPs1
+                ? Ps1CardsFolderName
+                : Ps2CardsFolderName;
+        var categoryRoot =
+            isPs1
+                ? _ps1CardsRoot
+                : _ps2CardsRoot;
+
+        Directory.CreateDirectory(categoryRoot);
+
+        var requestedStoredName =
+            entry.IsFolderCard
+                ? displayName
+                : displayName + entry.Extension;
+
+        var newLeafName =
+            CreateAvailableStoredName(
+                requestedStoredName,
+                entry.IsFolderCard,
+                categoryRoot,
+                oldPath);
+
+        var newPath =
+            Path.Combine(
+                categoryRoot,
+                newLeafName);
+
+        if (!oldPath.Equals(
+                newPath,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            if (entry.IsFolderCard)
+                Directory.Move(oldPath, newPath);
+            else
+                File.Move(oldPath, newPath);
+        }
+
+        entry.DisplayName = displayName;
+        entry.StoredName =
+            Path.Combine(
+                categoryName,
+                newLeafName);
+        entry.ModifiedUtc = DateTime.UtcNow;
+
+        await SaveAsync(index, cancellationToken);
     }
 
     public async Task ToggleFavoriteAsync(
@@ -198,14 +459,14 @@ public sealed class MemoryCardLibraryService
         CancellationToken cancellationToken = default)
     {
         var storedPath =
-            Path.Combine(
-                _cardsRoot,
-                entry.StoredName);
+            GetStoredPath(entry);
 
         if (entry.IsFolderCard)
         {
             if (Directory.Exists(storedPath))
-                Directory.Delete(storedPath, recursive: true);
+                Directory.Delete(
+                    storedPath,
+                    recursive: true);
         }
         else if (File.Exists(storedPath))
         {
