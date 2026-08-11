@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
@@ -15,6 +15,8 @@ namespace PlayStationSaveManager.Services;
 
 public sealed class Ps1MemoryCardService
 {
+    public bool AutomaticBackupsEnabled { get; set; } = true;
+
     public const int CardSize = 128 * 1024;
     public const int BlockSize = 8 * 1024;
     private const int FrameSize = 128;
@@ -24,25 +26,19 @@ public sealed class Ps1MemoryCardService
     private static readonly HashSet<string> WritableCardExtensions =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ".mcr", ".srm", ".bin", ".mcd", ".mc", ".gme", ".vm1"
+            ".bin", ".ddf", ".gme", ".mc", ".mcd", ".mci", ".mcr", ".mem",
+            ".ps", ".psm", ".sav", ".srm", ".vgs", ".vm1", ".vmc", ".vmp"
         };
 
     private static readonly HashSet<string> ReadableCardExtensions =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ".mcr", ".srm", ".bin", ".mcd", ".mc", ".gme", ".vm1"
+            ".bin", ".ddf", ".gme", ".mc", ".mcd", ".mci", ".mcr", ".mem",
+            ".ps", ".psm", ".sav", ".srm", ".vgs", ".vm1", ".vmc", ".vmp"
         };
 
     public static string FileDialogFilter =>
-        "PS1 Memory Cards|*.mcr;*.srm;*.bin;*.mcd;*.mc;*.gme;*.vm1|" +
-        "ePSXe / PSEmu Pro (*.mcr)|*.mcr|" +
-        "RetroArch / Libretro (*.srm)|*.srm|" +
-        "pSX / AdriPSX (*.bin)|*.bin|" +
-        "Bleem! (*.mcd)|*.mcd|" +
-        "PSXGame Edit (*.mc)|*.mc|" +
-        "DexDrive (*.gme)|*.gme|" +
-        "PS3 Virtual Memory Card (*.vm1)|*.vm1|" +
-        "All files|*.*";
+        FormatCatalog.Ps1MemoryCardFilter;
 
     public async Task CreateEmptyCardAsync(
         string destinationPath,
@@ -51,7 +47,7 @@ public sealed class Ps1MemoryCardService
         var extension = Path.GetExtension(destinationPath);
         if (!WritableCardExtensions.Contains(extension))
             throw new NotSupportedException(
-                "New PS1 cards can be created as MCR, SRM, BIN, MCD, MC, GME, or VM1.");
+                "New PS1 cards can be created as MCR, SRM, BIN, MCD, MC, GME, MEM/VGS, DDF, PS, PSM, MCI, VMP, VMC, SAV, or VM1.");
 
         if (File.Exists(destinationPath))
             throw new IOException(
@@ -616,6 +612,64 @@ public sealed class Ps1MemoryCardService
             cancellationToken);
     }
 
+    public async Task DeleteSavesAsync(
+        string cardPath,
+        IReadOnlyList<Ps1SaveEntry> saves,
+        CancellationToken cancellationToken = default)
+    {
+        if (saves.Count == 0)
+            return;
+
+        var card =
+            await ReadCardBytesAsync(
+                cardPath,
+                cancellationToken);
+
+        ValidateRawCard(card, cardPath);
+
+        foreach (var save in saves)
+        {
+            if (save.BlockChain.Count == 0)
+            {
+                throw new InvalidDataException(
+                    $"The selected PS1 save '{save.Title}' has no allocation chain.");
+            }
+
+            foreach (var block in save.BlockChain)
+            {
+                var offset =
+                    DirectoryOffset +
+                    (block - 1) * FrameSize;
+
+                card[offset] = 0xA1;
+                UpdateFrameChecksum(card, offset);
+            }
+        }
+
+        var verified =
+            ParseSaves(card, cardPath);
+
+        var stillPresent =
+            saves.Where(selected =>
+                verified.Any(candidate =>
+                    !candidate.IsDeleted &&
+                    candidate.FileName.Equals(
+                        selected.FileName,
+                        StringComparison.OrdinalIgnoreCase)))
+                .ToArray();
+
+        if (stillPresent.Length > 0)
+        {
+            throw new InvalidDataException(
+                $"{stillPresent.Length} selected PS1 save(s) were still present after deletion verification.");
+        }
+
+        await CommitWithBackupAsync(
+            cardPath,
+            card,
+            cancellationToken);
+    }
+
     public async Task SaveCardAsAsync(
         string sourcePath,
         string destinationPath,
@@ -630,7 +684,7 @@ public sealed class Ps1MemoryCardService
         var extension = Path.GetExtension(destinationPath);
         if (!WritableCardExtensions.Contains(extension))
             throw new NotSupportedException(
-                "The PS1 engine writes MCR, SRM, BIN, MCD, MC, GME, and VM1 cards.");
+                "The PS1 engine writes MCR, SRM, BIN, MCD, MC, GME, MEM/VGS, DDF, PS, PSM, MCI, VMP, VMC, SAV, and VM1 cards.");
 
         var destinationDirectory = Path.GetDirectoryName(destinationPath);
         if (!string.IsNullOrWhiteSpace(destinationDirectory))
@@ -662,7 +716,7 @@ public sealed class Ps1MemoryCardService
         var extension = Path.GetExtension(destinationPath);
         if (!WritableCardExtensions.Contains(extension))
             throw new NotSupportedException(
-                "PS1 save packages can be exported as MCR, SRM, BIN, MCD, MC, GME, or VM1 cards.");
+                "PS1 save packages can be exported as MCR, SRM, BIN, MCD, MC, GME, MEM/VGS, DDF, PS, PSM, MCI, VMP, VMC, SAV, or VM1 cards.");
 
         var manifest = await InspectSavePackageAsync(packagePath, cancellationToken);
         byte[] directoryFrames;
@@ -734,6 +788,134 @@ public sealed class Ps1MemoryCardService
             {
                 try { File.Delete(candidate); } catch { }
             }
+        }
+    }
+
+    public async Task CreateSingleSaveCardFromExternalSaveAsync(
+        string sourceSavePath,
+        string destinationPath,
+        CancellationToken cancellationToken = default)
+    {
+        var save = Ps1ExternalSaveService.Read(sourceSavePath);
+        var rawCard = Ps1ExternalSaveService.CreateSingleSaveRawCard(save);
+        var temporary = Path.Combine(
+            Path.GetTempPath(),
+            "PSM-PS1-EXTERNAL-" + Guid.NewGuid().ToString("N") + ".mcr");
+
+        try
+        {
+            await File.WriteAllBytesAsync(temporary, rawCard, cancellationToken);
+            var verified = await ReadAsync(temporary, cancellationToken);
+            if (verified.Saves.Count(candidate => !candidate.IsDeleted) != 1)
+                throw new InvalidDataException("The external PS1 save could not be mounted on a temporary card.");
+
+            await SaveCardAsAsync(temporary, destinationPath, cancellationToken);
+        }
+        finally
+        {
+            try { File.Delete(temporary); } catch { }
+        }
+    }
+
+    public async Task ImportExternalSaveAsync(
+        string sourceSavePath,
+        string destinationCardPath,
+        bool replaceExisting = false,
+        CancellationToken cancellationToken = default)
+    {
+        var save = Ps1ExternalSaveService.Read(sourceSavePath);
+        var rawCard = Ps1ExternalSaveService.CreateSingleSaveRawCard(save);
+        var temporary = Path.Combine(
+            Path.GetTempPath(),
+            "PSM-PS1-EXTERNAL-" + Guid.NewGuid().ToString("N") + ".mcr");
+
+        try
+        {
+            await File.WriteAllBytesAsync(temporary, rawCard, cancellationToken);
+            var source = await ReadAsync(temporary, cancellationToken);
+            var mounted = source.Saves.Single(candidate => !candidate.IsDeleted);
+            await CopySaveAsync(
+                temporary,
+                mounted,
+                destinationCardPath,
+                replaceExisting,
+                cancellationToken);
+        }
+        finally
+        {
+            try { File.Delete(temporary); } catch { }
+        }
+    }
+
+    public async Task CreateSavePackageFromExternalSaveAsync(
+        string sourceSavePath,
+        string destinationPackagePath,
+        CancellationToken cancellationToken = default)
+    {
+        var save = Ps1ExternalSaveService.Read(sourceSavePath);
+        var rawCard = Ps1ExternalSaveService.CreateSingleSaveRawCard(save);
+        var temporary = Path.Combine(
+            Path.GetTempPath(),
+            "PSM-PS1-EXTERNAL-" + Guid.NewGuid().ToString("N") + ".mcr");
+
+        try
+        {
+            await File.WriteAllBytesAsync(temporary, rawCard, cancellationToken);
+            var source = await ReadAsync(temporary, cancellationToken);
+            var mounted = source.Saves.Single(candidate => !candidate.IsDeleted);
+            await ExportSavePackageAsync(
+                temporary,
+                mounted,
+                destinationPackagePath,
+                cancellationToken);
+        }
+        finally
+        {
+            try { File.Delete(temporary); } catch { }
+        }
+    }
+
+    public async Task ExportExternalSaveAsync(
+        string cardPath,
+        Ps1SaveEntry save,
+        string destinationPath,
+        CancellationToken cancellationToken = default)
+    {
+        var card = await ReadCardBytesAsync(cardPath, cancellationToken);
+        ValidateRawCard(card, cardPath);
+
+        if (save.BlockChain.Count == 0)
+            throw new InvalidDataException("The selected PS1 save has no allocation chain.");
+
+        var data = new byte[save.BlockChain.Count * BlockSize];
+        for (var index = 0; index < save.BlockChain.Count; index++)
+        {
+            var block = save.BlockChain[index];
+            Buffer.BlockCopy(
+                card,
+                block * BlockSize,
+                data,
+                index * BlockSize,
+                BlockSize);
+        }
+
+        var external = new Ps1ExternalSaveData(
+            save.FileName,
+            "PS1 Individual Save",
+            data,
+            save.SaveTitle);
+
+        var encoded = Ps1ExternalSaveService.Encode(external, destinationPath);
+        var directory = Path.GetDirectoryName(destinationPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+            Directory.CreateDirectory(directory);
+        await File.WriteAllBytesAsync(destinationPath, encoded, cancellationToken);
+
+        var verified = Ps1ExternalSaveService.Read(destinationPath);
+        if (!data.AsSpan().SequenceEqual(verified.Data))
+        {
+            try { File.Delete(destinationPath); } catch { }
+            throw new InvalidDataException("The exported PS1 individual save failed verification.");
         }
     }
 
@@ -948,9 +1130,28 @@ public sealed class Ps1MemoryCardService
     {
         for (var index = 0; index < DirectoryEntries; index++)
         {
-            var status = card[DirectoryOffset + index * FrameSize];
-            if (status is 0xA0 or 0x00)
+            var status =
+                card[
+                    DirectoryOffset +
+                    index * FrameSize];
+
+            // PS1 directory states:
+            //   A0       = free
+            //   A1/A2/A3 = deleted/recoverable save blocks
+            //
+            // Deleted entries are intentionally reusable by the console.
+            // Treating only A0 as free caused cards containing recoverable
+            // saves to display free capacity correctly while transfer
+            // preflight incorrectly reported zero writable blocks.
+            if (status is
+                0x00 or
+                0xA0 or
+                0xA1 or
+                0xA2 or
+                0xA3)
+            {
                 yield return index + 1;
+            }
         }
     }
 
@@ -964,47 +1165,115 @@ public sealed class Ps1MemoryCardService
 
     private static byte[] DecodeCardBytes(byte[] fileBytes, string path)
     {
-        if (!Path.GetExtension(path).Equals(".gme", StringComparison.OrdinalIgnoreCase))
-            return fileBytes;
+        var extension = Path.GetExtension(path).ToLowerInvariant();
 
-        // PlayStation DexDrive GME cards store the standard 128 KiB card image
-        // after a metadata header. Real-world files commonly use a 0xF40-byte
-        // header, so prefer that layout and also accept a valid raw image at
-        // the end of the file for compatible variants.
-        const int standardHeaderSize = 0xF40;
-        if (fileBytes.Length >= standardHeaderSize + CardSize &&
-            fileBytes[standardHeaderSize] == 0x4D &&
-            fileBytes[standardHeaderSize + 1] == 0x43)
+        if (extension == ".gme")
         {
-            return fileBytes
-                .AsSpan(standardHeaderSize, CardSize)
-                .ToArray();
+            const int standardHeaderSize = 0xF40;
+            if (fileBytes.Length >= standardHeaderSize + CardSize &&
+                fileBytes[standardHeaderSize] == 0x4D &&
+                fileBytes[standardHeaderSize + 1] == 0x43)
+            {
+                return fileBytes
+                    .AsSpan(standardHeaderSize, CardSize)
+                    .ToArray();
+            }
+
+            var tailOffset = fileBytes.Length - CardSize;
+            if (tailOffset >= 0 &&
+                fileBytes[tailOffset] == 0x4D &&
+                fileBytes[tailOffset + 1] == 0x43)
+            {
+                return fileBytes
+                    .AsSpan(tailOffset, CardSize)
+                    .ToArray();
+            }
+
+            throw new InvalidDataException(
+                "The DexDrive GME file does not contain a valid 128 KB PlayStation memory-card image.");
         }
 
-        var tailOffset = fileBytes.Length - CardSize;
-        if (tailOffset >= 0 &&
-            fileBytes[tailOffset] == 0x4D &&
-            fileBytes[tailOffset + 1] == 0x43)
+        if (extension is ".mem" or ".vgs")
         {
-            return fileBytes
-                .AsSpan(tailOffset, CardSize)
-                .ToArray();
+            const int headerSize = 64;
+            if (fileBytes.Length == headerSize + CardSize &&
+                fileBytes[0] == (byte)'V' &&
+                fileBytes[1] == (byte)'g' &&
+                fileBytes[2] == (byte)'s' &&
+                fileBytes[3] == (byte)'M' &&
+                fileBytes[headerSize] == 0x4D &&
+                fileBytes[headerSize + 1] == 0x43)
+            {
+                return fileBytes.AsSpan(headerSize, CardSize).ToArray();
+            }
+
+            throw new InvalidDataException(
+                "The VGS/MEM file does not contain a valid 128 KB PlayStation memory-card image.");
         }
 
-        throw new InvalidDataException(
-            "The DexDrive GME file does not contain a valid 128 KB PlayStation memory-card image.");
+        if (extension == ".vmp")
+        {
+            const int headerSize = 128;
+            if (fileBytes.Length == headerSize + CardSize &&
+                fileBytes[0] == 0x00 &&
+                fileBytes[1] == (byte)'P' &&
+                fileBytes[2] == (byte)'M' &&
+                fileBytes[3] == (byte)'V' &&
+                fileBytes[headerSize] == 0x4D &&
+                fileBytes[headerSize + 1] == 0x43)
+            {
+                return fileBytes.AsSpan(headerSize, CardSize).ToArray();
+            }
+
+            throw new InvalidDataException(
+                "The VMP file does not contain a valid signed PlayStation memory-card image.");
+        }
+
+        return fileBytes;
     }
 
     private static byte[] EncodeNewCardBytes(string destinationPath, byte[] rawCard)
     {
-        if (!Path.GetExtension(destinationPath).Equals(".gme", StringComparison.OrdinalIgnoreCase))
-            return rawCard.ToArray();
+        ValidateRawCard(rawCard, ".mcr");
+        var extension = Path.GetExtension(destinationPath).ToLowerInvariant();
 
-        var header = BuildDexDriveHeader(rawCard);
-        var encoded = new byte[header.Length + rawCard.Length];
-        Buffer.BlockCopy(header, 0, encoded, 0, header.Length);
-        Buffer.BlockCopy(rawCard, 0, encoded, header.Length, rawCard.Length);
-        return encoded;
+        if (extension == ".gme")
+        {
+            var header = BuildDexDriveHeader(rawCard);
+            var encoded = new byte[header.Length + rawCard.Length];
+            Buffer.BlockCopy(header, 0, encoded, 0, header.Length);
+            Buffer.BlockCopy(rawCard, 0, encoded, header.Length, rawCard.Length);
+            return encoded;
+        }
+
+        if (extension is ".mem" or ".vgs")
+        {
+            var encoded = new byte[64 + CardSize];
+            encoded[0] = (byte)'V';
+            encoded[1] = (byte)'g';
+            encoded[2] = (byte)'s';
+            encoded[3] = (byte)'M';
+            encoded[4] = 0x01;
+            encoded[8] = 0x01;
+            encoded[12] = 0x01;
+            encoded[17] = 0x02;
+            Buffer.BlockCopy(rawCard, 0, encoded, 64, CardSize);
+            return encoded;
+        }
+
+        if (extension == ".vmp")
+        {
+            var encoded = new byte[128 + CardSize];
+            encoded[1] = (byte)'P';
+            encoded[2] = (byte)'M';
+            encoded[3] = (byte)'V';
+            encoded[4] = 0x80;
+            Buffer.BlockCopy(rawCard, 0, encoded, 128, CardSize);
+            Ps1FormatCrypto.SignVmp(encoded);
+            return encoded;
+        }
+
+        return rawCard.ToArray();
     }
 
     private static byte[] BuildDexDriveHeader(byte[] rawCard)
@@ -1014,16 +1283,10 @@ public sealed class Ps1MemoryCardService
         const int headerSize = 0xF40;
         var header = new byte[headerSize];
         Encoding.ASCII.GetBytes("123-456-STD").CopyTo(header, 0);
-
-        // These fixed fields match the conventional DexDrive GME header used
-        // by established PS1 memory-card tools.
         header[18] = 0x01;
         header[20] = 0x01;
         header[21] = 0x4D;
 
-        // Mirror each directory entry's allocation state and next-block value
-        // into the GME slot table. Comments remain empty unless an existing
-        // GME header is being preserved during in-place editing.
         for (var slot = 0; slot < DirectoryEntries; slot++)
         {
             var directoryOffset = DirectoryOffset + slot * FrameSize;
@@ -1039,26 +1302,30 @@ public sealed class Ps1MemoryCardService
         byte[] rawCard,
         CancellationToken cancellationToken)
     {
-        if (!Path.GetExtension(destinationPath).Equals(".gme", StringComparison.OrdinalIgnoreCase))
-            return rawCard;
+        var extension = Path.GetExtension(destinationPath).ToLowerInvariant();
 
-        var original = await File.ReadAllBytesAsync(
-            destinationPath,
-            cancellationToken);
-        var rawOffset = original.Length - CardSize;
-        if (original.Length >= 0xF40 + CardSize &&
-            original[0xF40] == 0x4D && original[0xF41] == 0x43)
+        if (extension == ".gme" && File.Exists(destinationPath))
         {
-            rawOffset = 0xF40;
+            var original = await File.ReadAllBytesAsync(
+                destinationPath,
+                cancellationToken);
+            var rawOffset = original.Length - CardSize;
+            if (original.Length >= 0xF40 + CardSize &&
+                original[0xF40] == 0x4D && original[0xF41] == 0x43)
+            {
+                rawOffset = 0xF40;
+            }
+
+            if (rawOffset >= 0)
+            {
+                var encoded = new byte[rawOffset + CardSize];
+                Buffer.BlockCopy(original, 0, encoded, 0, rawOffset);
+                Buffer.BlockCopy(rawCard, 0, encoded, rawOffset, CardSize);
+                return encoded;
+            }
         }
 
-        if (rawOffset < 0)
-            throw new InvalidDataException("The existing DexDrive GME header is invalid.");
-
-        var encoded = new byte[rawOffset + CardSize];
-        Buffer.BlockCopy(original, 0, encoded, 0, rawOffset);
-        Buffer.BlockCopy(rawCard, 0, encoded, rawOffset, CardSize);
-        return encoded;
+        return EncodeNewCardBytes(destinationPath, rawCard);
     }
 
     private static void ValidateRawCard(
@@ -1067,7 +1334,7 @@ public sealed class Ps1MemoryCardService
     {
         if (!ReadableCardExtensions.Contains(Path.GetExtension(path)))
             throw new NotSupportedException(
-                "This PS1 engine supports MCR, SRM, BIN, MCD, MC, GME, and VM1 cards.");
+                "This PS1 engine supports MCR, SRM, BIN, MCD, MC, GME, MEM/VGS, DDF, PS, PSM, MCI, VMP, VMC, SAV, and VM1 cards.");
 
         if (bytes.Length != CardSize)
             throw new InvalidDataException(
@@ -1078,13 +1345,16 @@ public sealed class Ps1MemoryCardService
                 "The file does not contain a valid raw PlayStation memory-card header.");
     }
 
-    private static async Task CommitWithBackupAsync(
+    private async Task CommitWithBackupAsync(
         string destinationPath,
         byte[] bytes,
         CancellationToken cancellationToken)
     {
-        var backup = CreateBackupPath(destinationPath);
-        File.Copy(destinationPath, backup, true);
+        if (AutomaticBackupsEnabled)
+        {
+            var backup = CreateBackupPath(destinationPath);
+            File.Copy(destinationPath, backup, true);
+        }
 
         var temporary = destinationPath + ".psm-temporary";
 
@@ -1374,17 +1644,7 @@ public sealed class Ps1MemoryCardService
     }
 
     private static string FormatName(string extension) =>
-        extension.ToLowerInvariant() switch
-        {
-            ".mcr" => "ePSXe / PSEmu Pro",
-            ".srm" => "RetroArch / Libretro",
-            ".bin" => "pSX / AdriPSX",
-            ".mcd" => "Bleem!",
-            ".mc" => "PSXGame Edit",
-            ".gme" => "DexDrive",
-            ".vm1" => "PS3 Virtual Memory Card",
-            _ => "Raw PS1 memory card"
-        };
+        FormatCatalog.GetPs1CardTypeName(extension);
 
     private static int ReadInt32(byte[] bytes, int offset) =>
         bytes[offset] |

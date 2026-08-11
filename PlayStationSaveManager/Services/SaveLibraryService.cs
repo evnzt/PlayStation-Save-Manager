@@ -241,6 +241,7 @@ public sealed class SaveLibraryService
             OriginalPath = sourcePath,
             Extension = extension,
             FormatName = FormatName(extension),
+            ImportedFrom = FormatName(extension),
             Platform = extension == ".ps1save"
                 ? "PlayStation"
                 : "PlayStation 2",

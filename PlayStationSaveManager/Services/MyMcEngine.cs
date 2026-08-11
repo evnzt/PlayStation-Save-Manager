@@ -88,10 +88,24 @@ public sealed class MyMcEngine
         var freeBytes = ParseFreeBytes(result.Output);
         var totalBytes = GetLogicalCardSize(cardPath);
 
-        if (freeBytes.HasValue && totalBytes.HasValue && freeBytes.Value > totalBytes.Value)
+        if (freeBytes.HasValue &&
+            totalBytes.HasValue &&
+            freeBytes.Value > totalBytes.Value)
+        {
             freeBytes = null;
+        }
 
-        return new CardReadResult(saves, totalBytes, freeBytes);
+        var containerInfo =
+            GetBankedVm2ContainerInfo(
+                cardPath,
+                totalBytes);
+
+        return new CardReadResult(
+            saves,
+            totalBytes,
+            freeBytes,
+            containerInfo.ContainerTotalBytes,
+            containerInfo.BankCount);
     }
 
     public async Task<IReadOnlyList<SaveEntry>> ReadDirectoryAsync(
@@ -128,16 +142,158 @@ public sealed class MyMcEngine
         string destination,
         CancellationToken cancellationToken = default)
     {
-        var extension = Path.GetExtension(destination).ToLowerInvariant();
-        if (extension is not ".psu" and not ".max")
-            throw new NotSupportedException(
-                $"The installed myMC++ engine can write PSU and MAX packages, not {extension.ToUpperInvariant()}.");
+        var extension =
+            Path.GetExtension(destination)
+                .ToLowerInvariant();
 
-        var result = await RunAsync(
-            cardPath,
-            ["export", "-f", "-o", destination, saveId],
-            TimeSpan.FromSeconds(60), cancellationToken);
-        EnsureSuccess(result, $"Could not export the {extension.ToUpperInvariant()} package");
+        if (extension is ".psu" or ".max")
+        {
+            var result = await RunAsync(
+                cardPath,
+                ["export", "-f", "-o", destination, saveId],
+                TimeSpan.FromSeconds(60),
+                cancellationToken);
+
+            EnsureSuccess(
+                result,
+                $"Could not export the {extension.ToUpperInvariant()} package");
+
+            return;
+        }
+
+        if (extension is not ".cbs" and
+            not ".sps" and
+            not ".xps" and
+            not ".psv")
+        {
+            throw new NotSupportedException(
+                $"PSM cannot write {extension.ToUpperInvariant()} PS2 save packages.");
+        }
+
+        var temporaryRoot =
+            Path.Combine(
+                Path.GetTempPath(),
+                "PSM-NATIVE-PS2-PACKAGE-" +
+                Guid.NewGuid().ToString("N"));
+
+        Directory.CreateDirectory(
+            temporaryRoot);
+
+        var temporaryPsu =
+            Path.Combine(
+                temporaryRoot,
+                saveId + ".psu");
+
+        try
+        {
+            await ExportPsuAsync(
+                cardPath,
+                saveId,
+                temporaryPsu,
+                cancellationToken);
+
+            await Ps2PackageWriterService.WriteFromPsuAsync(
+                temporaryPsu,
+                destination,
+                cancellationToken);
+
+            await VerifyNativePackageRoundTripAsync(
+                destination,
+                saveId,
+                cancellationToken);
+        }
+        catch
+        {
+            try
+            {
+                if (File.Exists(destination))
+                    File.Delete(destination);
+            }
+            catch
+            {
+                // Do not hide the actual export/verification failure.
+            }
+
+            throw;
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(
+                    temporaryRoot,
+                    recursive: true);
+            }
+            catch
+            {
+                // Temporary cleanup must not mask a successful export.
+            }
+        }
+    }
+
+    private async Task VerifyNativePackageRoundTripAsync(
+        string packagePath,
+        string expectedSaveId,
+        CancellationToken cancellationToken)
+    {
+        var temporaryRoot =
+            Path.Combine(
+                Path.GetTempPath(),
+                "PSM-NATIVE-PS2-VERIFY-" +
+                Guid.NewGuid().ToString("N"));
+
+        Directory.CreateDirectory(
+            temporaryRoot);
+
+        var verificationCard =
+            Path.Combine(
+                temporaryRoot,
+                "verify.ps2");
+
+        try
+        {
+            await CreateCardAsync(
+                verificationCard,
+                noEcc: false,
+                cancellationToken: cancellationToken);
+
+            await ImportAsync(
+                verificationCard,
+                packagePath,
+                cancellationToken);
+
+            await CheckAsync(
+                verificationCard,
+                cancellationToken);
+
+            var saves =
+                await ReadDirectoryAsync(
+                    verificationCard,
+                    cancellationToken);
+
+            if (!saves.Any(
+                    save =>
+                        save.DirectoryId.Equals(
+                            expectedSaveId,
+                            StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidDataException(
+                    $"The generated {Path.GetExtension(packagePath).ToUpperInvariant()} package could not be verified after round-trip import.");
+            }
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(
+                    temporaryRoot,
+                    recursive: true);
+            }
+            catch
+            {
+                // Verification cleanup is best-effort.
+            }
+        }
     }
 
 
@@ -1117,6 +1273,62 @@ public sealed class MyMcEngine
         }
     }
 
+    public async Task CreateCardAsync(
+        string destinationPath,
+        int sizeMegabytes,
+        bool noEcc,
+        CancellationToken cancellationToken = default)
+    {
+        if (!noEcc)
+        {
+            await CreateCardAsync(
+                destinationPath,
+                sizeMegabytes,
+                cancellationToken);
+            return;
+        }
+
+        var temporaryEccPath =
+            destinationPath + ".temporary-ecc.ps2";
+
+        try
+        {
+            await CreateCardAsync(
+                temporaryEccPath,
+                sizeMegabytes,
+                cancellationToken);
+
+            await ConvertEccCardToNoEccAsync(
+                temporaryEccPath,
+                destinationPath,
+                cancellationToken);
+
+            await CheckAsync(
+                destinationPath,
+                cancellationToken);
+        }
+        catch
+        {
+            try
+            {
+                if (File.Exists(destinationPath))
+                    File.Delete(destinationPath);
+            }
+            catch { }
+
+            throw;
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(temporaryEccPath))
+                    File.Delete(temporaryEccPath);
+            }
+            catch { }
+        }
+    }
+
     public async Task CreateFolderCardAsync(
         string destinationDirectory,
         CancellationToken cancellationToken = default)
@@ -1849,12 +2061,154 @@ public sealed class MyMcEngine
         return null;
     }
 
+    private static (
+        long? ContainerTotalBytes,
+        int? BankCount)
+        GetBankedVm2ContainerInfo(
+            string cardPath,
+            long? activeBankBytes)
+    {
+        try
+        {
+            if (!Path.GetExtension(cardPath).Equals(
+                    ".vm2",
+                    StringComparison.OrdinalIgnoreCase) ||
+                !activeBankBytes.HasValue ||
+                activeBankBytes.Value <= 0)
+            {
+                return (null, null);
+            }
+
+            var physicalBytes =
+                new FileInfo(cardPath).Length;
+
+            if (physicalBytes <= 0 ||
+                physicalBytes % 528 != 0)
+            {
+                return (null, null);
+            }
+
+            var containerLogicalBytes =
+                physicalBytes / 528 * 512;
+
+            if (containerLogicalBytes <=
+                activeBankBytes.Value)
+            {
+                return (null, null);
+            }
+
+            if (containerLogicalBytes %
+                activeBankBytes.Value != 0)
+            {
+                return (null, null);
+            }
+
+            var bankCount =
+                checked((int)(
+                    containerLogicalBytes /
+                    activeBankBytes.Value));
+
+            if (bankCount <= 1)
+                return (null, null);
+
+            // Confirm that each expected bank begins with a PS2
+            // memory-card superblock. This prevents ordinary padded
+            // images from being misidentified as banked VM2 files.
+            var bankPhysicalBytes =
+                activeBankBytes.Value / 512 * 528;
+
+            using var stream =
+                File.OpenRead(cardPath);
+
+            var magic =
+                Encoding.ASCII.GetBytes(
+                    "Sony PS2 Memory Card Format ");
+
+            var buffer =
+                new byte[magic.Length];
+
+            for (var bank = 0;
+                 bank < bankCount;
+                 bank++)
+            {
+                stream.Position =
+                    bank * bankPhysicalBytes;
+
+                var read =
+                    stream.Read(
+                        buffer,
+                        0,
+                        buffer.Length);
+
+                if (read != buffer.Length ||
+                    !buffer.AsSpan()
+                        .SequenceEqual(magic))
+                {
+                    return (null, null);
+                }
+            }
+
+            return (
+                containerLogicalBytes,
+                bankCount);
+        }
+        catch
+        {
+            return (null, null);
+        }
+    }
+
     private static long? GetLogicalCardSize(string cardPath)
     {
         try
         {
             var physicalBytes = new FileInfo(cardPath).Length;
             if (physicalBytes <= 0) return null;
+
+            // Prefer the filesystem geometry stored in the PS2 superblock.
+            // This avoids treating multi-image / padded ECC containers such
+            // as some VM2 files as one giant active filesystem.
+            using (var stream = File.OpenRead(cardPath))
+            {
+                if (stream.Length >= 0x34)
+                {
+                    var superblock = new byte[0x34];
+                    var read = stream.Read(
+                        superblock,
+                        0,
+                        superblock.Length);
+
+                    if (read == superblock.Length &&
+                        Encoding.ASCII.GetString(
+                            superblock,
+                            0,
+                            28)
+                            .Equals(
+                                "Sony PS2 Memory Card Format ",
+                                StringComparison.Ordinal))
+                    {
+                        var pageLength =
+                            BinaryPrimitives.ReadUInt16LittleEndian(
+                                superblock.AsSpan(0x28, 2));
+
+                        var pagesPerCluster =
+                            BinaryPrimitives.ReadUInt16LittleEndian(
+                                superblock.AsSpan(0x2A, 2));
+
+                        var clustersPerCard =
+                            BinaryPrimitives.ReadUInt32LittleEndian(
+                                superblock.AsSpan(0x30, 4));
+
+                        var logicalBytes =
+                            (long)pageLength *
+                            pagesPerCluster *
+                            clustersPerCard;
+
+                        if (logicalBytes > 0)
+                            return logicalBytes;
+                    }
+                }
+            }
 
             if (physicalBytes % 528 == 0)
             {

@@ -6,7 +6,9 @@ namespace PlayStationSaveManager.Services;
 public sealed record CardReadResult(
     IReadOnlyList<SaveEntry> Saves,
     long? TotalBytes,
-    long? FreeBytes)
+    long? FreeBytes,
+    long? ContainerTotalBytes = null,
+    int? BankCount = null)
 {
     public long? UsedBytes =>
         TotalBytes.HasValue && FreeBytes.HasValue

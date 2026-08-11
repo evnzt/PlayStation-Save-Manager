@@ -17,6 +17,7 @@ public sealed class SaveLibraryEntry : INotifyPropertyChanged
     public string OriginalPath { get; set; } = string.Empty;
     public string Extension { get; set; } = string.Empty;
     public string FormatName { get; set; } = string.Empty;
+    public string ImportedFrom { get; set; } = string.Empty;
     public string Platform { get; set; } = string.Empty;
     public string DirectoryId { get; set; } = string.Empty;
     public string GameTitle { get; set; } = string.Empty;
