@@ -50,19 +50,21 @@ Run `Build-and-Launch.cmd` to build and launch. See `README.txt` for details.
 The application can manage and convert between:
 | Format | Description |
 |---------|-------------|
-|.MCR | ePSXe / DexDrive Memory Card|
-|.GME | DexDrive Save|
 |.BIN | Raw Memory Card|
-|.MCD | Bleem! Memory Card|
-|.MEM | VGS Memory Card|
-|.MC | PSXGameEdit Memory Card|
 |.DDF | DataDeck Memory Card|
+|.GME | DexDrive Save|
+|.MC | PSXGameEdit Memory Card|
+|.MCD | Bleem! Memory Card|
+|.MCI | MCExplorer Memory Card|
+|.MCR | ePSXe / DexDrive Memory Card|
+|.MEM/.VGS | VGS / Connectix Memory Card|
 |.PS | WinPSM Memory Card|
 |.PSM | Smart Link Memory Card|
-|.MCI | MCExplorer Memory Card|
-|.SRM | Save RAM|
-|.VMP | PSP / PS3 Virtual Memory Card|
+|.SAV | SAV Memory Card|
+|.SRM | RetroArcch / Libretro Memory Card|
 |.VM1 | PS3 Virtual Memory Card|
+|.VMC | Virtual Memory Card|
+|.VMP | PSP Virtual Memory Card|
 
 </details>
 
@@ -72,32 +74,19 @@ The application can manage and convert between:
 The application can manage and convert between:
 | Format | Description |
 |---------|-------------|
-| .PSU | EMS / uLaunchELF Memory Linker Save |
-| .MAX | Action Replay MAX |
+| .BIN | Virtual Memory Card |
 | .CBS | CodeBreaker |
-| .XPS | X-Port |
-| .XPO | X-Port (legacy) |
-| .SPS | SharkPort |
-| .MD | SharkPort / InterAct |
-| .NPO | NPort |
-| .P2M | Xploder |
-| .PSV | PS3 Virtual Memory Card Export |
-| .PS2 | Standard Memory Card |
+| .MAX | Action Replay MAX |
 | .MC2 | MemCard PRO2 |
+| .MCD | Virtual Memory Card |
+| .PS2 | Standard Memory Card |
+| .PSU | EMS / uLaunchELF Memory Linker Save |
+| .PSV | PS3 Virtual Memory Card Export |
+| .SPS | SharkPort |
+| .VM2 | PS3 Virtual Memory Card |
+| .VMC | Virtual Memory Card |
+| .XPS | X-Port / Xploder |
 | Folder Card | PCSX2 Folder Memory Card |
-
-</details>
-
-<details>
-<summary><strong>Memory Cards</strong></summary>
-
-The application can manage and convert between:
-| Format | Description |
-|---------|-------------|
-|.MC/MCR | PlayStation 1 Memory Cards|
-|.MC2 | MemCard PRO2|
-|.PS2 | PlayStation 2 Memory Card|
-|Folder Card | PCSX2 Folder Memory Cards|
 
 </details>
 
