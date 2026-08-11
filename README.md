@@ -61,7 +61,7 @@ The application can manage and convert between:
 |.PS | WinPSM Memory Card|
 |.PSM | Smart Link Memory Card|
 |.SAV | SAV Memory Card|
-|.SRM | RetroArcch / Libretro Memory Card|
+|.SRM | RetroArch / Libretro Memory Card|
 |.VM1 | PS3 Virtual Memory Card|
 |.VMC | Virtual Memory Card|
 |.VMP | PSP Virtual Memory Card|
