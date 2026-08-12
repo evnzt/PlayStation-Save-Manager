@@ -41,7 +41,7 @@ The cache may be deleted safely and will be recreated when needed.
 - PS1 and PS2 memory-card management
 - Standard PS2, MemCard PRO2, and PCSX2 folder cards
 - Verified save transfers and automatic backups
-- New cards already formated, Save Card As, and folder conversion
+- New cards already formatted, Save Card As, and folder conversion
 - Universal Import Wizard and Universal Converter supporting individual saves and cards
 - Game Save Library and Memory Card Library
 - Native PS1 icons and animated PS2 previews

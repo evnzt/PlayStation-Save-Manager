@@ -373,7 +373,7 @@ public partial class MainWindow : Window
         try
         {
             SetBusy(true, $"Transferring {save.DirectoryId}...");
-            VerifiedBanner.Visibility = Visibility.Collapsed;
+            VerifiedBanner.Visibility = Visibility.Hidden;
             var psu = Path.Combine(temporaryDirectory, save.DirectoryId + ".psu");
             var destinationIsFolder =
                 Directory.Exists(destination);
@@ -1263,7 +1263,7 @@ public partial class MainWindow : Window
                     new CardChoice(
                         FindResource("IconStandardPs2Card") as ImageSource,
                         "Standard PS2 Memory Card",
-                        "Create a .ps2 or .mc2 card in 8, 16, 32, or 64 MB.",
+                        "Create a card in 8, 16, 32, or 64 MB.",
                         1),
                     new CardChoice(
                         FindResource("IconPcsx2FolderCard") as ImageSource,
@@ -1274,32 +1274,10 @@ public partial class MainWindow : Window
 
         if (choice == 1)
         {
-            var format =
-                ShowNewCardTypeDialog(
-                    "SELECT PS2 CARD FORMAT",
-                    "Choose the file format for the new memory card.",
-                    new[]
-                    {
-                        new CardChoice(
-                            FindResource("IconStandardPs2Card") as ImageSource,
-                            "PCSX2 (.ps2)",
-                            "Create a standard PCSX2 memory-card image.",
-                            1),
-                        new CardChoice(
-                            FindResource("IconStandardPs2Card") as ImageSource,
-                            "MemCard PRO2 (.mc2)",
-                            "Create a MemCard PRO2-compatible memory-card image.",
-                            2)
-                    },
-                    "PS2 Memory Card Format");
-
-            if (format == 0)
-                return;
-
             var sizeMb =
                 ShowNewCardTypeDialog(
                     "SELECT PS2 CARD SIZE",
-                    $"Choose the capacity for the new {(format == 2 ? ".mc2" : ".ps2")} memory card. 8 MB offers the widest game compatibility.",
+                    "Choose the capacity for the new memory card. 8 MB offers the widest game compatibility.",
                     new[]
                     {
                         new CardChoice(
@@ -1326,7 +1304,7 @@ public partial class MainWindow : Window
                     "PS2 Memory Card Size");
 
             if (sizeMb != 0)
-                await CreateNewPs2FileCardAsync(sideText[0], sizeMb, format == 2);
+                await CreateNewPs2FileCardAsync(sideText[0], sizeMb);
         }
         else if (choice == 2)
         {
@@ -1336,30 +1314,60 @@ public partial class MainWindow : Window
 
     private async Task CreateNewPs2FileCardAsync(
         char side,
-        int sizeMb,
-        bool createMc2)
+        int sizeMb)
     {
-        var extension = createMc2 ? ".mc2" : ".ps2";
-        var formatName = createMc2 ? "MemCard PRO2" : "PCSX2";
-
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
-            Title = $"Create {sizeMb} MB {formatName} Memory Card",
-            Filter = createMc2
-                ? "MemCard PRO2 Memory Card (*.mc2)|*.mc2"
-                : "PCSX2 Memory Card (*.ps2)|*.ps2",
-            DefaultExt = extension,
+            Title = $"Create {sizeMb} MB PS2 Memory Card",
+            Filter = FormatCatalog.Ps2MemoryCardFilter,
+            FilterIndex = 4, // PCSX2 .ps2
+            DefaultExt = ".ps2",
             AddExtension = true,
-            FileName = createMc2
-                ? "MemoryCard1-1.mc2"
-                : (side == 'A'
-                    ? $"PS2 Card A - {sizeMb}MB.ps2"
-                    : $"PS2 Card B - {sizeMb}MB.ps2"),
+            FileName = side == 'A'
+                ? $"PS2 Card A - {sizeMb}MB.ps2"
+                : $"PS2 Card B - {sizeMb}MB.ps2",
             OverwritePrompt = true
         };
 
         if (dialog.ShowDialog() != true)
             return;
+
+        var extension =
+            Path.GetExtension(dialog.FileName).ToLowerInvariant();
+
+        var supportedExtensions =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ".bin", ".mc2", ".mcd", ".ps2", ".vm2", ".vmc"
+            };
+
+        if (!supportedExtensions.Contains(extension))
+        {
+            MessageBox.Show(
+                "Choose one of PSM's supported PS2 memory-card formats: BIN, MC2, MCD, PS2, VM2, or VMC.",
+                "Unsupported PS2 Card Format",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var formatName =
+            extension switch
+            {
+                ".bin" => "BIN Raw Dump",
+                ".mc2" => "MemCard PRO2",
+                ".mcd" => "MCD",
+                ".ps2" => "PCSX2",
+                ".vm2" => "PS2 Virtual Memory Card",
+                ".vmc" => "VMC",
+                _ => "PS2"
+            };
+
+        // MC2 is PSM's no-ECC MemCard PRO2 representation.
+        // The other supported image-card extensions use the standard ECC image.
+        var noEcc = extension.Equals(
+            ".mc2",
+            StringComparison.OrdinalIgnoreCase);
 
         try
         {
@@ -1370,7 +1378,7 @@ public partial class MainWindow : Window
             await _engine.CreateCardAsync(
                 dialog.FileName,
                 sizeMb,
-                createMc2);
+                noEcc);
 
             Log(
                 $"Created {sizeMb} MB {formatName} memory card: {dialog.FileName}");
@@ -1476,7 +1484,7 @@ public partial class MainWindow : Window
         var side = sideText[0];
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
-            Title = "Create Standard PlayStation Memory Card",
+            Title = "Create PS1 Memory Card",
             Filter = Ps1MemoryCardService.FileDialogFilter,
             DefaultExt = ".mcr",
             AddExtension = true,
@@ -1560,7 +1568,7 @@ public partial class MainWindow : Window
             _previewFallbackB = null;
             ResetCapacityDisplay('B');
         }
-        VerifiedBanner.Visibility = Visibility.Collapsed;
+        VerifiedBanner.Visibility = Visibility.Hidden;
         StatusText.Text = $"Card {side} closed. Browse or drop another card.";
         RefreshButtons();
     }
@@ -1645,8 +1653,7 @@ public partial class MainWindow : Window
                 true,
                 $"Transferring {saves.Count} PS2 saves...");
 
-            VerifiedBanner.Visibility =
-                Visibility.Collapsed;
+            VerifiedBanner.Visibility = Visibility.Hidden;
 
             var destinationIsFolder =
                 Directory.Exists(destination);
@@ -1817,6 +1824,14 @@ public partial class MainWindow : Window
         var output = Path.GetFullPath(dialog.FileName);
         var extension = Path.GetExtension(output).ToLowerInvariant();
 
+        if (extension == ".foldercard")
+        {
+            output =
+                Path.Combine(
+                    Path.GetDirectoryName(output)!,
+                    Path.GetFileNameWithoutExtension(output));
+        }
+
         if (extension == ".mc2")
         {
             output = PromptForMemCardPro2ReadyOutput(output, save.DirectoryId);
@@ -1827,7 +1842,23 @@ public partial class MainWindow : Window
         {
             SetBusy(true, "Exporting save...");
 
-            if (extension is ".ps2" or ".mc2" or ".vm2" or ".vmc" or ".bin" or ".mcd")
+            if (extension == ".foldercard")
+            {
+                await CreateSingleSaveFolderCardAsync(
+                    card,
+                    save.DirectoryId,
+                    output);
+
+                Log(
+                    $"Exported {save.DirectoryId} to single-save PCSX2 folder card {output}.");
+
+                MessageBox.Show(
+                    $"A fresh PCSX2 folder memory card containing only the selected save was created and verified.\n\n{output}",
+                    "Export Complete",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            else if (extension is ".ps2" or ".mc2" or ".vm2" or ".vmc" or ".bin" or ".mcd")
             {
                 await CreateSingleSaveCardAsync(card, save.DirectoryId, output, extension == ".mc2");
                 Log($"Exported {save.DirectoryId} to single-save card {output}.");
@@ -1850,8 +1881,20 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            try { if (File.Exists(output)) File.Delete(output); } catch { }
-            MessageBox.Show(ex.Message, "Export Failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            try
+            {
+                if (File.Exists(output))
+                    File.Delete(output);
+                else if (Directory.Exists(output))
+                    Directory.Delete(output, recursive: true);
+            }
+            catch { }
+
+            MessageBox.Show(
+                ex.Message,
+                "Export Failed",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
         }
         finally { SetBusy(false, "Ready."); }
     }
@@ -1888,6 +1931,74 @@ public partial class MainWindow : Window
         finally
         {
             try { Directory.Delete(temporaryRoot, true); } catch { }
+        }
+    }
+
+    private async Task CreateSingleSaveFolderCardAsync(
+        string sourceCard,
+        string directoryId,
+        string outputDirectory)
+    {
+        var temporaryRoot =
+            Path.Combine(
+                Path.GetTempPath(),
+                "PSM-SINGLE-SAVE-FOLDER-CARD-" +
+                Guid.NewGuid().ToString("N"));
+
+        Directory.CreateDirectory(temporaryRoot);
+
+        try
+        {
+            var temporaryCard =
+                Path.Combine(
+                    temporaryRoot,
+                    "single-save.ps2");
+
+            await CreateSingleSaveCardAsync(
+                sourceCard,
+                directoryId,
+                temporaryCard,
+                noEcc: false);
+
+            var temporaryFolder =
+                Path.Combine(
+                    temporaryRoot,
+                    "FolderCard");
+
+            await _engine.ConvertToPcsx2FolderCardAsync(
+                temporaryCard,
+                temporaryFolder);
+
+            await _engine.CheckAsync(temporaryFolder);
+
+            var saves =
+                await _engine.ReadDirectoryAsync(
+                    temporaryFolder);
+
+            if (saves.Count != 1 ||
+                !saves[0].DirectoryId.Equals(
+                    directoryId,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    "The single-save PCSX2 folder memory card could not be verified exactly.");
+            }
+
+            if (Directory.Exists(outputDirectory))
+                Directory.Delete(outputDirectory, recursive: true);
+
+            CopyDirectory(
+                temporaryFolder,
+                outputDirectory);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(temporaryRoot))
+                    Directory.Delete(temporaryRoot, recursive: true);
+            }
+            catch { }
         }
     }
 
@@ -1956,10 +2067,10 @@ public partial class MainWindow : Window
         var filterEntries =
             new[]
             {
-                ("PS2 Memory Card - BIN • Raw / compatible", ".bin"),
+                ("PS2 Memory Card - BIN • Raw Dump", ".bin"),
                 ("PS2 Memory Card - MC2 • MemCard PRO2", ".mc2"),
                 ("PS2 Memory Card - MCD • Memory Card Image", ".mcd"),
-                ("PS2 Memory Card - PS2 • PCSX2", ".ps2"),
+                ("PS2 Memory Card - PS2 • PCSX2 Virtual Memory Card", ".ps2"),
                 ("PS2 Memory Card - VM2 • Virtual Memory Card", ".vm2"),
                 ("PS2 Memory Card - VMC • Virtual Memory Card", ".vmc")
             };
@@ -1970,7 +2081,7 @@ public partial class MainWindow : Window
                 filterEntries.Select(
                     entry =>
                         $"{entry.Item1} (*{entry.Item2})|*{entry.Item2}")) +
-            "|PS2 Memory Card - PCSX2 Folder Card (folder)|*.*";
+            "|PS2 Memory Card - Folder • PCSX2 Folder Card|*.*";
 
         var defaultFilterIndex =
             Array.FindIndex(
@@ -9893,7 +10004,7 @@ await LoadSaveLibraryIconAsync(result.Entry);
         try
         {
             SetBusy(true, $"Importing {packageName}...");
-            VerifiedBanner.Visibility = Visibility.Collapsed;
+            VerifiedBanner.Visibility = Visibility.Hidden;
             var before = await _engine.ReadDirectoryAsync(destination);
             var temporaryCard = Path.Combine(temporaryDirectory, Path.GetFileName(destination));
             File.Copy(destination, temporaryCard, true);

@@ -875,9 +875,7 @@
             </StackPanel>
         </Grid>
 
-        <Border x:Name="VerifiedBanner" Grid.Row="1" Visibility="Collapsed" Background="#09291A" BorderBrush="#35C66A" BorderThickness="1" CornerRadius="6" Padding="10" Margin="4,0,4,8">
-            <TextBlock x:Name="VerifiedText" Text="TRANSFER VERIFIED" Foreground="#73F5A1" FontWeight="Bold" FontSize="14"/>
-        </Border>
+        
 
         <TabControl x:Name="MainTabs" SelectionChanged="MainTabs_SelectionChanged" Grid.Row="2" Grid.RowSpan="2" Background="#080D13" BorderBrush="#1E2D40">
             <TabItem x:Name="Ps2MemoryCardsTab" PreviewMouseDown="MemoryCardTab_PreviewMouseDown"><TabItem.Header><StackPanel Orientation="Horizontal"><Image Source="{StaticResource IconDocuments}" Style="{StaticResource TabIcon}"/><TextBlock Text="PS2 Memory Cards" VerticalAlignment="Center"/></StackPanel></TabItem.Header>
@@ -1091,13 +1089,21 @@
 
                         <Button x:Name="CopyAToBButton"
                                 Style="{StaticResource PrimaryButton}"
+                                HorizontalAlignment="Stretch"
+                                Padding="20,12"
+                                HorizontalContentAlignment="Center"
+                                VerticalContentAlignment="Center"
                                 Content="Copy A to B   →"
                                 IsEnabled="False"
                                 Click="CopyAToB_Click"
-                                Margin="0,0,0,14"/>
+                                Margin="4,3,4,14"/>
 
                         <Button x:Name="CopyBToAButton"
                                 Style="{StaticResource PurpleButton}"
+                                HorizontalAlignment="Stretch"
+                                Padding="20,12"
+                                HorizontalContentAlignment="Center"
+                                VerticalContentAlignment="Center"
                                 Content="←   Copy B to A"
                                 IsEnabled="False"
                                 Click="CopyBToA_Click"/>
@@ -1146,13 +1152,13 @@
                                 Padding="12"
                                 Margin="0,18,0,0">
                             <StackPanel>
-                                <TextBlock Text="SUPPORTED PS2 FORMATS"
+                                <TextBlock Text="SUPPORTED MEMORY CARD FORMATS"
                                            Foreground="#B7C5D7"
                                            FontSize="11"
                                            FontWeight="SemiBold"
                                            TextAlignment="Center"
                                            Margin="0,0,0,7"/>
-                                <TextBlock Text=".BIN  •  .CBS  •  .MAX  •  .MC2  •  .MCD&#x0a;.PS2  •  .PSU  •  .PSV  •  .SPS  •  .VM2  •  .VMC  •  .XPS"
+                                <TextBlock Text=".BIN  •  .MC2  •  .MCD  •  .PS2&#x0a;.VM2  •  .VMC  •  PCSX2 FOLDER CARD"
                                            Foreground="#91BDEB"
                                            FontSize="10"
                                            TextAlignment="Center"
@@ -1608,13 +1614,21 @@
 
                         <Button x:Name="CopyPs1AToBButton"
                                 Style="{StaticResource PrimaryButton}"
+                                HorizontalAlignment="Stretch"
+                                Padding="20,12"
+                                HorizontalContentAlignment="Center"
+                                VerticalContentAlignment="Center"
                                 Content="Copy A to B   →"
                                 Click="CopyPs1AToB_Click"
                                 IsEnabled="False"
-                                Margin="0,0,0,14"/>
+                                Margin="4,3,4,14"/>
 
                         <Button x:Name="CopyPs1BToAButton"
                                 Style="{StaticResource PurpleButton}"
+                                HorizontalAlignment="Stretch"
+                                Padding="20,12"
+                                HorizontalContentAlignment="Center"
+                                VerticalContentAlignment="Center"
                                 Content="←   Copy B to A"
                                 Click="CopyPs1BToA_Click"
                                 IsEnabled="False"/>
@@ -1663,7 +1677,7 @@
                                 Padding="12"
                                 Margin="0,18,0,0">
                             <StackPanel>
-                                <TextBlock Text="SUPPORTED PS1 FORMATS"
+                                <TextBlock Text="SUPPORTED MEMORY CARD FORMATS"
                                            Foreground="#B7C5D7"
                                            FontSize="11"
                                            FontWeight="SemiBold"
@@ -2773,7 +2787,7 @@
                                                    HorizontalAlignment="Center"
                                                    TextAlignment="Center"/>
                                         <TextBlock x:Name="WizardDropSubtitle"
-                                                   Text="PS1 Saves: .MCB  •  .MCS  •  .MCX  •  .PDA  •  .PS1  •  .PSV  •  .PSX  •  .RAW&#x0a;PS1 Cards: .BIN  •  .DDF  •  .GME  •  .MC  •  .MCD  •  .MCI  •  .MCR  •  .MEM  •  .PS  •  .PSM  •  .SAV  •  .SRM  •  .VGS  •  .VM1  •  .VMC  •  .VMP&#x0a;PS2: .BIN  •  .CBS  •  .MAX  •  .MC2  •  .MCD  •  .PS2  •  .PSU  •  .PSV  •  .SPS  •  .VM2  •  .VMC  •  .XPS"
+                                                   Text="PS1 Saves: .MCB  •  .MCS  •  .MCX  •  .PDA  •  .PS1  •  .PSV  •  .PSX  •  .RAW&#x0a;PS1 Cards: .BIN  •  .DDF  •  .GME  •  .MC  •  .MCD  •  .MCI  •  .MCR  •  .MEM  •  .PS  •  .PSM  •  .SAV  •  .SRM  •  .VGS  •  .VM1  •  .VMC  •  .VMP&#x0a;PS2 Saves: .CBS  •  .MAX  •  .PSU  •  .PSV  •  .SPS  •  .XPS&#x0a;PS2 Cards: .BIN  •  .MC2  •  .MCD  •  .PS2  •  .VM2  •  .VMC  •  PCSX2 FOLDER CARD"
                                                    Foreground="#8FA4BD"
                                                    TextWrapping="Wrap"
                                                    TextAlignment="Center"
@@ -2971,12 +2985,12 @@
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
                             <TextBlock Text="UNIVERSAL CONVERTER" FontSize="25" FontWeight="Bold"/>
                             <TextBlock Grid.Row="1"
                                        Text="Convert supported PlayStation and PlayStation 2 saves or complete memory cards while preserving the original source."
-                                       Foreground="#9FB0C5" TextWrapping="Wrap" Margin="0,6,0,22"/>
+                                       Foreground="#9FB0C5" TextWrapping="Wrap" Margin="0,6,0,16"/>
                             <StackPanel Grid.Row="2">
                                 <TextBlock Text="Source File" FontWeight="Bold"/>
                                 <DockPanel Margin="0,7,0,7">
@@ -3001,18 +3015,20 @@
                                 </DockPanel>
                             </StackPanel>
                             <Border Grid.Row="5" Background="#09111A" BorderBrush="#203149"
-                                    BorderThickness="1" CornerRadius="7" Padding="14" Margin="0,0,0,18">
+                                    BorderThickness="1" CornerRadius="7" Padding="14" Margin="0,0,0,10">
                                 <StackPanel>
                                     <TextBlock Text="Supported Input Formats" FontWeight="SemiBold" Margin="0,0,0,7"/>
-                                    <TextBlock Text="PS1 Saves: .MCB  •  .MCS  •  .MCX  •  .PDA  •  .PS1  •  .PSV  •  .PSX  •  .RAW&#x0a;PS1 Cards: .BIN  •  .DDF  •  .GME  •  .MC  •  .MCD  •  .MCI  •  .MCR  •  .MEM  •  .PS  •  .PSM  •  .SAV  •  .SRM  •  .VGS  •  .VM1  •  .VMC  •  .VMP&#x0a;PS2: .BIN  •  .CBS  •  .MAX  •  .MC2  •  .MCD  •  .PS2  •  .PSU  •  .PSV  •  .SPS  •  .VM2  •  .VMC  •  .XPS"
+                                    <TextBlock Text="PS1 Saves: .MCB  •  .MCS  •  .MCX  •  .PDA  •  .PS1  •  .PSV  •  .PSX  •  .RAW&#x0a;PS1 Cards: .BIN  •  .DDF  •  .GME  •  .MC  •  .MCD  •  .MCI  •  .MCR  •  .MEM  •  .PS  •  .PSM  •  .SAV  •  .SRM  •  .VGS  •  .VM1  •  .VMC  •  .VMP&#x0a;PS2 Saves: .CBS  •  .MAX  •  .PSU  •  .PSV  •  .SPS  •  .XPS&#x0a;PS2 Cards: .BIN  •  .MC2  •  .MCD  •  .PS2  •  .VM2  •  .VMC  •  PCSX2 FOLDER CARD"
                                                Foreground="#AFC1D7" TextWrapping="Wrap"/>
-                                    <TextBlock Text="PSM now writes verified PS1 individual saves and legacy PS1 card wrappers, plus PS2 image-card aliases. Cross-console conversions remain blocked."
-                                               Foreground="#7F93AA" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
                                 </StackPanel>
                             </Border>
                             <Button x:Name="UniversalConvertButton" Grid.Row="6"
                                     Style="{StaticResource PrimaryButton}"
                                     Content="Convert and Verify"
+                                    MinWidth="170" Height="42" Margin="4,0,0,0"
+                                    Padding="20,8"
+                                    HorizontalContentAlignment="Center"
+                                    VerticalContentAlignment="Center"
                                     HorizontalAlignment="Left" VerticalAlignment="Top"
                                     IsEnabled="False" Click="UniversalConvert_Click"/>
                         </Grid>
@@ -3115,7 +3131,42 @@
         <Border Grid.Row="4" Background="#080E15" BorderBrush="#1C2B3C" BorderThickness="1" CornerRadius="6" Padding="14,10" Margin="0,10,0,0">
             <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="2*"/><ColumnDefinition/></Grid.ColumnDefinitions>
                 <TextBlock Text="Card A Status     •     Verified protection" Foreground="#9EB0C5" VerticalAlignment="Center"/>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center"><TextBlock Text="◆" Foreground="#42E47B" FontSize="18" Margin="0,0,8,0"/><TextBlock Text="Safe Transaction Mode Active" Foreground="#42E47B" FontWeight="Bold" VerticalAlignment="Center"/></StackPanel>
+                <Grid Grid.Column="1"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center">
+                        <TextBlock Text="◆"
+                                   Foreground="#42E47B"
+                                   FontSize="18"
+                                   Margin="0,0,8,0"/>
+                        <TextBlock Text="Safe Transaction Mode Active"
+                                   Foreground="#42E47B"
+                                   FontWeight="Bold"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Border x:Name="VerifiedBanner"
+                            Visibility="Hidden"
+                            Background="#080E15"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch">
+                        <StackPanel Orientation="Horizontal"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center">
+                            <TextBlock Text="◆"
+                                       Foreground="#73F5A1"
+                                       FontSize="18"
+                                       Margin="0,0,8,0"/>
+                            <TextBlock x:Name="VerifiedText"
+                                       Text="TRANSFER VERIFIED"
+                                       Foreground="#73F5A1"
+                                       FontWeight="Bold"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
                 <TextBlock Grid.Column="2" Text="Card B Status     •     Verified protection" Foreground="#9EB0C5" HorizontalAlignment="Right" VerticalAlignment="Center"/>
             </Grid>
         </Border>

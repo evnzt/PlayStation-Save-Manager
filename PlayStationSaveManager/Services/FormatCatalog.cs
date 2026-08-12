@@ -32,7 +32,7 @@ public static class FormatCatalog
         "PS1 Individual Save - MCX • Datel (*.mcx)|*.mcx|" +
         "PS1 Individual Save - PDA • Datel (*.pda)|*.pda|" +
         "PS1 Individual Save - PS1 • Memory Juggler (*.ps1)|*.ps1|" +
-        "PS3 PS1 Virtual Save - PSV (*.psv)|*.psv|" +
+        "PS1 Individual Save - PSV • PS3 Virtual Save (*.psv)|*.psv|" +
         "PS1 Individual Save - PSX • X-Port / AR / GameShark (*.psx)|*.psx|" +
         "PS1 Individual Save - RAW (*.raw)|*.raw|" +
         "All files|*.*";
@@ -44,7 +44,7 @@ public static class FormatCatalog
         "PS1 Individual Save - PDA • Datel (*.pda)|*.pda|" +
         "PS1 Individual Save - PS1 • Memory Juggler (*.ps1)|*.ps1|" +
         "PSM PlayStation Save Package (*.ps1save)|*.ps1save|" +
-        "PS3 PS1 Virtual Save - PSV (*.psv)|*.psv|" +
+        "PS1 Individual Save - PSV • PS3 Virtual Save (*.psv)|*.psv|" +
         "PS1 Individual Save - PSX • X-Port / AR / GameShark (*.psx)|*.psx|" +
         "PS1 Individual Save - RAW (*.raw)|*.raw|" +
         "pSX / AdriPSX Memory Card (*.bin)|*.bin|" +
@@ -101,7 +101,7 @@ public static class FormatCatalog
         "PS2 Individual Save - CBS • CodeBreaker (*.cbs)|*.cbs|" +
         "PS2 Individual Save - MAX • Action Replay MAX (*.max)|*.max|" +
         "PS2 Individual Save - PSU • EMS / uLaunchELF (*.psu)|*.psu|" +
-        "PS3 PS2 Virtual Save - PSV (*.psv)|*.psv|" +
+        "PS2 Individual Save - PSV • PS3 Virtual Save (*.psv)|*.psv|" +
         "PS2 Individual Save - SPS • SharkPort (*.sps)|*.sps|" +
         "PS2 Individual Save - XPS • X-Port / Xploder (*.xps)|*.xps|" +
         "PS2 BIN Memory Card (*.bin)|*.bin|" +
@@ -109,14 +109,15 @@ public static class FormatCatalog
         "PS2 MCD Memory Card (*.mcd)|*.mcd|" +
         "PCSX2 Memory Card (*.ps2)|*.ps2|" +
         "PS2 Virtual Memory Card (*.vm2)|*.vm2|" +
-        "PS2 VMC Memory Card (*.vmc)|*.vmc";
+        "PS2 VMC Memory Card (*.vmc)|*.vmc|" +
+        "PCSX2 Folder Card (*.foldercard)|*.foldercard";
 
     public const string Ps2PackageImportFilter =
         "PS2 Packaged Saves|*.cbs;*.max;*.psu;*.psv;*.sps;*.xps|" +
         "PS2 Individual Save - CBS • CodeBreaker (*.cbs)|*.cbs|" +
         "PS2 Individual Save - MAX • Action Replay MAX (*.max)|*.max|" +
         "PS2 Individual Save - PSU • EMS / uLaunchELF (*.psu)|*.psu|" +
-        "PS3 PS2 Virtual Save - PSV (*.psv)|*.psv|" +
+        "PS2 Individual Save - PSV • PS3 Virtual Save (*.psv)|*.psv|" +
         "PS2 Individual Save - SPS • SharkPort (*.sps)|*.sps|" +
         "PS2 Individual Save - XPS • X-Port / Xploder (*.xps)|*.xps|" +
         "All files|*.*";
