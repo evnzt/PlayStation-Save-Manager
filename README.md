@@ -50,16 +50,24 @@ Run `Build-and-Launch.cmd` to build and launch. See `README.txt` for details.
 The application can manage and convert between:
 | Format | Description |
 |---------|-------------|
-|.BIN | Raw Memory Card|
+|.BIN | Raw Memory Card Dump|
 |.DDF | DataDeck Memory Card|
 |.GME | DexDrive Save|
 |.MC | PSXGameEdit Memory Card|
+|.MCB | Smart Link|
 |.MCD | Bleem! Memory Card|
 |.MCI | MCExplorer Memory Card|
 |.MCR | ePSXe / DexDrive Memory Card|
+|.MCS | PSXGameEdit|
+|.MCX | Datel|
 |.MEM/.VGS | VGS / Connectix Memory Card|
+|.PDA | Datel|
 |.PS | WinPSM Memory Card|
+|.PS1 | Memory Juggler|
 |.PSM | Smart Link Memory Card|
+|.PSV | PS3 PS1/PS2 Virtual Save|
+|.PSX | X-Port / AR / GameShark|
+|.RAW | RAW Save Dump|
 |.SAV | SAV Memory Card|
 |.SRM | RetroArch / Libretro Memory Card|
 |.VM1 | PS3 Virtual Memory Card|
@@ -79,9 +87,9 @@ The application can manage and convert between:
 | .MAX | Action Replay MAX |
 | .MC2 | MemCard PRO2 |
 | .MCD | Virtual Memory Card |
-| .PS2 | Standard Memory Card |
+| .PS2 | PCSX2 Memory Card |
 | .PSU | EMS / uLaunchELF Memory Linker Save |
-| .PSV | PS3 Virtual Memory Card Export |
+| .PSV | PS3 Virtual Save |
 | .SPS | SharkPort |
 | .VM2 | PS3 Virtual Memory Card |
 | .VMC | Virtual Memory Card |
@@ -207,6 +215,31 @@ Following the first launch, use `Launch.cmd` or `PlayStation Save Manager.exe` i
 
 Your save libraries, settings, and memory cards are **not modified** by
 the update process.
+
+## Uninstalling
+
+1.  Delete the PlayStation Save Manager folder.
+1.  Delete PlayStation Save Manager data.
+
+**Data**
+
+Save Library:
+
+``` text
+%LocalAppData%\PlayStationSaveManager\SaveLibrary
+```
+
+Generated list icons and preview images:
+
+``` text
+%LocalAppData%\PlayStationSaveManager\Cache
+```
+
+Logs:
+
+``` text
+%LocalAppData%\PlayStationSaveManager\Logs
+```
 
 ------------------------------------------------------------------------
 
