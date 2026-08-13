@@ -17,6 +17,7 @@ public sealed record SaveLibraryImportResult(
 public sealed class SaveLibraryService
 {
     private readonly MyMcEngine _engine;
+    private readonly Ps2SavePackageService _ps2PackageService;
     private readonly string _libraryRoot;
     private readonly string _filesRoot;
     private readonly string _ps1SavesRoot;
@@ -33,6 +34,8 @@ public sealed class SaveLibraryService
     public SaveLibraryService(MyMcEngine engine)
     {
         _engine = engine;
+        _ps2PackageService =
+            new Ps2SavePackageService(engine);
         _libraryRoot = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "PlayStationSaveManager",
@@ -155,117 +158,224 @@ public sealed class SaveLibraryService
         CancellationToken cancellationToken = default)
     {
         if (!File.Exists(sourcePath))
-            throw new FileNotFoundException("The save package does not exist.", sourcePath);
+        {
+            throw new FileNotFoundException(
+                "The save package does not exist.",
+                sourcePath);
+        }
 
-        var extension = Path.GetExtension(sourcePath).ToLowerInvariant();
-        if (extension is not ".psu" and not ".max" and not ".cbs" and
-            not ".xps" and not ".sps" and not ".psv" and
-            not ".ps1save")
+        var sourceExtension =
+            Path.GetExtension(sourcePath)
+                .ToLowerInvariant();
+
+        if (sourceExtension is not ".psu" and
+            not ".max" and
+            not ".cbs" and
+            not ".xps" and
+            not ".sps" and
+            not ".psv" and
+            not ".ps1save" and
+            not ".ps2save")
         {
             throw new NotSupportedException(
-                "The Save Library imports PS1SAVE, PSU, MAX, CBS, XPS, SPS, and PSV packages.");
+                "The Save Library imports PS1SAVE, PS2SAVE, PSU, MAX, CBS, XPS, SPS, and PSV packages.");
         }
 
-        var hash = await ComputeSha256Async(sourcePath, cancellationToken);
-        var duplicate = index.Entries.FirstOrDefault(entry =>
-            entry.Sha256.Equals(hash, StringComparison.OrdinalIgnoreCase));
+        string? temporaryPs2Package = null;
 
-        if (duplicate is not null)
-            return new SaveLibraryImportResult(duplicate, duplicate);
-
-        SaveEntry? metadata = null;
-        Ps1SavePackageManifest? ps1Metadata = null;
-
-        if (extension == ".ps1save")
+        try
         {
-            ps1Metadata =
-                await Ps1MemoryCardService.InspectSavePackageAsync(
-                    sourcePath,
+            var storedSourcePath =
+                sourcePath;
+            var storedExtension =
+                sourceExtension;
+
+            Ps1SavePackageManifest? ps1Metadata =
+                null;
+            Ps2SavePackageManifest? ps2Metadata =
+                null;
+
+            if (sourceExtension == ".ps1save")
+            {
+                ps1Metadata =
+                    await Ps1MemoryCardService
+                        .InspectSavePackageAsync(
+                            sourcePath,
+                            cancellationToken);
+            }
+            else
+            {
+                if (sourceExtension == ".ps2save")
+                {
+                    ps2Metadata =
+                        await _ps2PackageService
+                            .InspectAsync(
+                                sourcePath,
+                                cancellationToken);
+                }
+                else
+                {
+                    temporaryPs2Package =
+                        Path.Combine(
+                            Path.GetTempPath(),
+                            "PSM-LIBRARY-PS2-" +
+                            Guid.NewGuid().ToString("N") +
+                            ".ps2save");
+
+                    await _ps2PackageService
+                        .CreateFromLegacyPackageAsync(
+                            sourcePath,
+                            temporaryPs2Package,
+                            cancellationToken);
+
+                    storedSourcePath =
+                        temporaryPs2Package;
+                    storedExtension =
+                        ".ps2save";
+
+                    ps2Metadata =
+                        await _ps2PackageService
+                            .InspectAsync(
+                                temporaryPs2Package,
+                                cancellationToken);
+                }
+            }
+
+            var hash =
+                await ComputeSha256Async(
+                    storedSourcePath,
                     cancellationToken);
-        }
-        else
-        {
-            metadata = await InspectPackageAsync(
-                sourcePath,
-                cancellationToken);
-        }
 
-        var id = Guid.NewGuid().ToString("N");
-        var description = extension == ".ps1save"
-            ? (!string.IsNullOrWhiteSpace(ps1Metadata!.SaveTitle)
-                ? ps1Metadata.SaveTitle
-                : ps1Metadata.OriginalFileName)
-            : metadata!.ProfileName;
+            var duplicate =
+                index.Entries.FirstOrDefault(
+                    entry =>
+                        entry.Sha256.Equals(
+                            hash,
+                            StringComparison.OrdinalIgnoreCase));
 
-        var directoryId = extension == ".ps1save"
-            ? ps1Metadata!.ProductCode
-            : metadata!.DirectoryId;
+            if (duplicate is not null)
+            {
+                return new SaveLibraryImportResult(
+                    duplicate,
+                    duplicate);
+            }
 
-        var categoryName =
-            extension == ".ps1save"
-                ? Ps1SavesFolderName
-                : Ps2SavesFolderName;
-        var categoryRoot =
-            extension == ".ps1save"
-                ? _ps1SavesRoot
-                : _ps2SavesRoot;
+            var description =
+                storedExtension == ".ps1save"
+                    ? (!string.IsNullOrWhiteSpace(
+                            ps1Metadata!.SaveTitle)
+                        ? ps1Metadata.SaveTitle
+                        : ps1Metadata.OriginalFileName)
+                    : ps2Metadata!.SaveTitle;
 
-        Directory.CreateDirectory(categoryRoot);
+            var directoryId =
+                storedExtension == ".ps1save"
+                    ? ps1Metadata!.ProductCode
+                    : ps2Metadata!.DirectoryId;
 
-        var storedBaseName =
-            CreateAvailableStoredFileName(
-                BuildFriendlySaveFileName(
-                    directoryId,
-                    description,
-                    extension),
+            var categoryName =
+                storedExtension == ".ps1save"
+                    ? Ps1SavesFolderName
+                    : Ps2SavesFolderName;
+
+            var categoryRoot =
+                storedExtension == ".ps1save"
+                    ? _ps1SavesRoot
+                    : _ps2SavesRoot;
+
+            Directory.CreateDirectory(
                 categoryRoot);
 
-        var storedFileName =
-            Path.Combine(
-                categoryName,
-                storedBaseName);
+            var storedBaseName =
+                CreateAvailableStoredFileName(
+                    BuildFriendlySaveFileName(
+                        directoryId,
+                        description,
+                        storedExtension),
+                    categoryRoot);
 
-        var destination =
-            Path.Combine(
-                categoryRoot,
-                storedBaseName);
+            var storedFileName =
+                Path.Combine(
+                    categoryName,
+                    storedBaseName);
 
-        File.Copy(sourcePath, destination, true);
+            var destination =
+                Path.Combine(
+                    categoryRoot,
+                    storedBaseName);
 
-        var file = new FileInfo(sourcePath);
-        var entry = new SaveLibraryEntry
+            File.Copy(
+                storedSourcePath,
+                destination,
+                true);
+
+            var originalFile =
+                new FileInfo(sourcePath);
+            var storedFile =
+                new FileInfo(storedSourcePath);
+
+            var entry =
+                new SaveLibraryEntry
+                {
+                    Id =
+                        Guid.NewGuid().ToString("N"),
+                    StoredFileName =
+                        storedFileName,
+                    OriginalFileName =
+                        originalFile.Name,
+                    OriginalPath =
+                        sourcePath,
+                    Extension =
+                        storedExtension,
+                    FormatName =
+                        FormatName(storedExtension),
+                    ImportedFrom =
+                        originalFile.Name,
+                    Platform =
+                        storedExtension == ".ps1save"
+                            ? "PlayStation"
+                            : "PlayStation 2",
+                    DirectoryId =
+                        directoryId,
+                    GameTitle =
+                        storedExtension == ".ps1save"
+                            ? ps1Metadata!.Title
+                            : ps2Metadata!.GameTitle,
+                    ProfileName =
+                        description,
+                    SizeBytes =
+                        storedFile.Length,
+                    Sha256 =
+                        hash,
+                    AddedUtc =
+                        DateTime.UtcNow,
+                    ModifiedUtc =
+                        originalFile.LastWriteTimeUtc
+                };
+
+            index.Entries.Add(
+                entry);
+
+            await SaveAsync(
+                index,
+                cancellationToken);
+
+            return new SaveLibraryImportResult(
+                entry,
+                null);
+        }
+        finally
         {
-            Id = id,
-            StoredFileName = storedFileName,
-            OriginalFileName = file.Name,
-            OriginalPath = sourcePath,
-            Extension = extension,
-            FormatName = FormatName(extension),
-            ImportedFrom = FormatName(extension),
-            Platform = extension == ".ps1save"
-                ? "PlayStation"
-                : "PlayStation 2",
-            DirectoryId = extension == ".ps1save"
-                ? ps1Metadata!.ProductCode
-                : metadata!.DirectoryId,
-            GameTitle = extension == ".ps1save"
-                ? ps1Metadata!.Title
-                : metadata!.GameTitle,
-            ProfileName = extension == ".ps1save"
-                ? (!string.IsNullOrWhiteSpace(ps1Metadata!.SaveTitle)
-                    ? ps1Metadata.SaveTitle
-                    : ps1Metadata.OriginalFileName)
-                : metadata!.ProfileName,
-            SizeBytes = file.Length,
-            Sha256 = hash,
-            AddedUtc = DateTime.UtcNow,
-            ModifiedUtc = file.LastWriteTimeUtc
-        };
-
-        index.Entries.Add(entry);
-        await SaveAsync(index, cancellationToken);
-
-        return new SaveLibraryImportResult(entry, null);
+            if (temporaryPs2Package is not null)
+            {
+                try
+                {
+                    File.Delete(
+                        temporaryPs2Package);
+                }
+                catch { }
+            }
+        }
     }
 
     private bool MigrateStoredFileNames(SaveLibraryIndex index)
@@ -293,6 +403,20 @@ public sealed class SaveLibraryService
             var currentPath = GetStoredPath(entry);
             if (!File.Exists(currentPath))
                 continue;
+
+            if (entry.IsUserRenamed ||
+                LooksLikeUserRenamedSave(
+                    entry,
+                    currentPath))
+            {
+                if (!entry.IsUserRenamed)
+                {
+                    entry.IsUserRenamed = true;
+                    changed = true;
+                }
+
+                continue;
+            }
 
             var desiredFileName =
                 BuildFriendlySaveFileName(
@@ -335,6 +459,37 @@ public sealed class SaveLibraryService
 
         TryDeleteEmptyDirectory(_filesRoot);
         return changed;
+    }
+
+    private static bool LooksLikeUserRenamedSave(
+        SaveLibraryEntry entry,
+        string currentPath)
+    {
+        var canonicalBaseName =
+            Path.GetFileNameWithoutExtension(
+                BuildFriendlySaveFileName(
+                    entry.DirectoryId,
+                    entry.ProfileName,
+                    entry.Extension));
+
+        var currentBaseName =
+            Path.GetFileNameWithoutExtension(
+                currentPath);
+
+        if (string.IsNullOrWhiteSpace(canonicalBaseName) ||
+            string.IsNullOrWhiteSpace(currentBaseName))
+        {
+            return false;
+        }
+
+        // User-renamed saves use:
+        // Canonical Original Name (Custom Library Name).ext
+        return currentBaseName.StartsWith(
+                   canonicalBaseName + " (",
+                   StringComparison.CurrentCultureIgnoreCase) &&
+               currentBaseName.EndsWith(
+                   ")",
+                   StringComparison.Ordinal);
     }
 
     private static string CreateAvailableStoredFileName(
@@ -402,6 +557,184 @@ public sealed class SaveLibraryService
         return string.IsNullOrWhiteSpace(value)
             ? "Untitled"
             : value;
+    }
+
+    public async Task RenameAsync(
+        SaveLibraryEntry entry,
+        SaveLibraryIndex index,
+        string requestedDisplayName,
+        CancellationToken cancellationToken = default)
+    {
+        var displayName =
+            SanitizeFileName(
+                requestedDisplayName.Trim());
+
+        if (!string.IsNullOrWhiteSpace(entry.Extension) &&
+            displayName.EndsWith(
+                entry.Extension,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            displayName =
+                Path.GetFileNameWithoutExtension(displayName);
+        }
+
+        if (string.IsNullOrWhiteSpace(displayName))
+            displayName = "Game Save";
+
+        var oldPath = GetStoredPath(entry);
+        if (!File.Exists(oldPath))
+        {
+            throw new FileNotFoundException(
+                "The stored library save is missing.",
+                oldPath);
+        }
+
+        var isPs1 =
+            entry.Extension.Equals(
+                ".ps1save",
+                StringComparison.OrdinalIgnoreCase) ||
+            entry.Platform.Equals(
+                "PlayStation",
+                StringComparison.OrdinalIgnoreCase);
+
+        var categoryName =
+            isPs1
+                ? Ps1SavesFolderName
+                : Ps2SavesFolderName;
+        var categoryRoot =
+            isPs1
+                ? _ps1SavesRoot
+                : _ps2SavesRoot;
+
+        Directory.CreateDirectory(categoryRoot);
+
+        // Rebuild the canonical archive filename from the save identity.
+        // Direct-from-card imports can have a temporary OriginalFileName that
+        // contains PSM's generated GUID; that internal name must never leak
+        // into a user-facing Library rename.
+        var canonicalBaseName =
+            Path.GetFileNameWithoutExtension(
+                BuildFriendlySaveFileName(
+                    entry.DirectoryId,
+                    entry.ProfileName,
+                    entry.Extension));
+
+        if (string.IsNullOrWhiteSpace(canonicalBaseName))
+            canonicalBaseName = "Game Save";
+
+        var desiredName =
+            $"{canonicalBaseName} ({displayName}){entry.Extension}";
+
+        if (displayName.Equals(
+                canonicalBaseName,
+                StringComparison.CurrentCultureIgnoreCase))
+        {
+            desiredName =
+                canonicalBaseName + entry.Extension;
+        }
+
+        var newLeafName =
+            CreateAvailableStoredFileName(
+                desiredName,
+                categoryRoot,
+                oldPath);
+        var newPath =
+            Path.Combine(
+                categoryRoot,
+                newLeafName);
+
+        if (!oldPath.Equals(
+                newPath,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            File.Move(oldPath, newPath);
+        }
+
+        if (string.IsNullOrWhiteSpace(entry.OriginalDisplayTitle))
+            entry.OriginalDisplayTitle = entry.GameTitle;
+
+        entry.GameTitle = displayName;
+        entry.StoredFileName =
+            Path.Combine(
+                categoryName,
+                newLeafName);
+        entry.IsUserRenamed = true;
+        entry.ModifiedUtc = DateTime.UtcNow;
+
+        await SaveAsync(index, cancellationToken);
+    }
+
+    public async Task ResetNameAsync(
+        SaveLibraryEntry entry,
+        SaveLibraryIndex index,
+        CancellationToken cancellationToken = default)
+    {
+        var oldPath = GetStoredPath(entry);
+        if (!File.Exists(oldPath))
+            throw new FileNotFoundException("The stored library save is missing.", oldPath);
+
+        var isPs1 =
+            entry.Extension.Equals(".ps1save", StringComparison.OrdinalIgnoreCase) ||
+            entry.Platform.Equals("PlayStation", StringComparison.OrdinalIgnoreCase);
+
+        var categoryName = isPs1 ? Ps1SavesFolderName : Ps2SavesFolderName;
+        var categoryRoot = isPs1 ? _ps1SavesRoot : _ps2SavesRoot;
+        Directory.CreateDirectory(categoryRoot);
+
+        var desiredFileName =
+            BuildFriendlySaveFileName(
+                entry.DirectoryId,
+                entry.ProfileName,
+                entry.Extension);
+
+        var newLeafName =
+            CreateAvailableStoredFileName(
+                desiredFileName,
+                categoryRoot,
+                oldPath);
+        var newPath = Path.Combine(categoryRoot, newLeafName);
+
+        if (!oldPath.Equals(newPath, StringComparison.OrdinalIgnoreCase))
+            File.Move(oldPath, newPath);
+
+        var originalTitle = entry.OriginalDisplayTitle;
+        if (string.IsNullOrWhiteSpace(originalTitle))
+        {
+            try
+            {
+                if (entry.Extension.Equals(".ps1save", StringComparison.OrdinalIgnoreCase))
+                {
+                    var manifest =
+                        await Ps1MemoryCardService.InspectSavePackageAsync(
+                            newPath,
+                            cancellationToken);
+                    originalTitle = manifest.Title;
+                }
+                else
+                {
+                    var metadata =
+                        await InspectPackageAsync(
+                            newPath,
+                            cancellationToken);
+                    originalTitle = metadata.GameTitle;
+                }
+            }
+            catch
+            {
+                // Legacy entry: filename can still be reset even if the old
+                // display title cannot be reconstructed.
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(originalTitle))
+            entry.GameTitle = originalTitle;
+
+        entry.StoredFileName = Path.Combine(categoryName, newLeafName);
+        entry.IsUserRenamed = false;
+        entry.OriginalDisplayTitle = string.Empty;
+        entry.ModifiedUtc = DateTime.UtcNow;
+
+        await SaveAsync(index, cancellationToken);
     }
 
     public async Task ExportAsync(
@@ -539,6 +872,7 @@ public sealed class SaveLibraryService
             ".sps" => "SharkPort Save",
             ".psv" => "PlayStation 3 Virtual Save",
             ".ps1save" => "PSM PlayStation Save Package",
+            ".ps2save" => "PSM PlayStation Save Package",
             _ => extension.TrimStart('.').ToUpperInvariant()
         };
 }

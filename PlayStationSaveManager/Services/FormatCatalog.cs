@@ -101,6 +101,7 @@ public static class FormatCatalog
         "PS2 Individual Save - CBS • CodeBreaker (*.cbs)|*.cbs|" +
         "PS2 Individual Save - MAX • Action Replay MAX (*.max)|*.max|" +
         "PS2 Individual Save - PSU • EMS / uLaunchELF (*.psu)|*.psu|" +
+        "PSM PlayStation Save Package (*.ps2save)|*.ps2save|" +
         "PS2 Individual Save - PSV • PS3 Virtual Save (*.psv)|*.psv|" +
         "PS2 Individual Save - SPS • SharkPort (*.sps)|*.sps|" +
         "PS2 Individual Save - XPS • X-Port / Xploder (*.xps)|*.xps|" +
@@ -123,7 +124,7 @@ public static class FormatCatalog
         "All files|*.*";
 
     public const string SaveLibraryImportFilter =
-        "PlayStation Saves|*.cbs;*.max;*.mcb;*.mcs;*.mcx;*.pda;*.ps1;*.ps1save;*.psu;*.psv;*.psx;*.raw;*.sps;*.xps|" +
+        "PlayStation Saves|*.cbs;*.max;*.mcb;*.mcs;*.mcx;*.pda;*.ps1;*.ps1save;*.ps2save;*.psu;*.psv;*.psx;*.raw;*.sps;*.xps|" +
         "PS2 Individual Save - CBS • CodeBreaker (*.cbs)|*.cbs|" +
         "PS2 Individual Save - MAX • Action Replay MAX (*.max)|*.max|" +
         "PS1 Individual Save - MCB • Smart Link (*.mcb)|*.mcb|" +
@@ -132,6 +133,7 @@ public static class FormatCatalog
         "PS1 Individual Save - PDA • Datel (*.pda)|*.pda|" +
         "PS1 Individual Save - PS1 • Memory Juggler (*.ps1)|*.ps1|" +
         "PSM PlayStation Save Package (*.ps1save)|*.ps1save|" +
+        "PSM PlayStation Save Package (*.ps2save)|*.ps2save|" +
         "PS2 Individual Save - PSU • EMS / uLaunchELF (*.psu)|*.psu|" +
         "PlayStation Virtual Save - PSV (*.psv)|*.psv|" +
         "PS1 Individual Save - PSX • X-Port / AR / GameShark (*.psx)|*.psx|" +

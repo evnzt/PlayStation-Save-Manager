@@ -68,6 +68,7 @@ public sealed class MemoryCardLibraryService
         string sourcePath, string platform, string cardType,
         int saveCount, long? capacityBytes,
         string? displayNameOverride = null,
+        string? originalPathOverride = null,
         CancellationToken cancellationToken = default)
     {
         var folder = Directory.Exists(sourcePath);
@@ -140,11 +141,21 @@ public sealed class MemoryCardLibraryService
         var entry = new MemoryCardLibraryEntry
         {
             Id=id, DisplayName=displayName, StoredName=storedName,
-            OriginalPath=sourcePath, Platform=platform, CardType=cardType,
+            OriginalPath=string.IsNullOrWhiteSpace(originalPathOverride)
+                ? sourcePath
+                : originalPathOverride,
+            OriginalDisplayName=displayName,
+            Platform=platform, CardType=cardType,
             Extension=extension, IsFolderCard=folder, SizeBytes=size,
             CapacityBytes=capacityBytes, SaveCount=saveCount, Sha256=hash,
             AddedUtc=DateTime.UtcNow,
-            ModifiedUtc=folder ? Directory.GetLastWriteTimeUtc(sourcePath) : File.GetLastWriteTimeUtc(sourcePath)
+            ModifiedUtc=
+                !string.IsNullOrWhiteSpace(originalPathOverride) &&
+                File.Exists(originalPathOverride)
+                    ? File.GetLastWriteTimeUtc(originalPathOverride)
+                    : folder
+                        ? Directory.GetLastWriteTimeUtc(sourcePath)
+                        : File.GetLastWriteTimeUtc(sourcePath)
         };
         index.Entries.Add(entry);
         await SaveAsync(index, cancellationToken);
@@ -434,11 +445,89 @@ public sealed class MemoryCardLibraryService
                 File.Move(oldPath, newPath);
         }
 
+        if (string.IsNullOrWhiteSpace(entry.OriginalDisplayName))
+            entry.OriginalDisplayName = GetOriginalCardDisplayName(entry);
+
         entry.DisplayName = displayName;
         entry.StoredName =
             Path.Combine(
                 categoryName,
                 newLeafName);
+        entry.IsUserRenamed = true;
+        entry.ModifiedUtc = DateTime.UtcNow;
+
+        await SaveAsync(index, cancellationToken);
+    }
+
+    private static string GetOriginalCardDisplayName(
+        MemoryCardLibraryEntry entry)
+    {
+        if (!string.IsNullOrWhiteSpace(entry.OriginalDisplayName))
+            return entry.OriginalDisplayName;
+
+        if (!string.IsNullOrWhiteSpace(entry.OriginalPath))
+        {
+            var trimmed = entry.OriginalPath.TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar);
+            var leaf = Path.GetFileName(trimmed);
+
+            if (!string.IsNullOrWhiteSpace(leaf))
+                return entry.IsFolderCard
+                    ? leaf
+                    : Path.GetFileNameWithoutExtension(leaf);
+        }
+
+        return GetExtensionFreeDisplayName(entry);
+    }
+
+    public async Task ResetNameAsync(
+        MemoryCardLibraryEntry entry,
+        MemoryCardLibraryIndex index,
+        CancellationToken cancellationToken = default)
+    {
+        var oldPath = GetStoredPath(entry);
+        var exists = entry.IsFolderCard
+            ? Directory.Exists(oldPath)
+            : File.Exists(oldPath);
+
+        if (!exists)
+            throw new FileNotFoundException("The stored memory card is missing.", oldPath);
+
+        var displayName =
+            SanitizeFileName(
+                GetOriginalCardDisplayName(entry));
+
+        var isPs1 = IsPs1Entry(entry);
+        var categoryName = isPs1 ? Ps1CardsFolderName : Ps2CardsFolderName;
+        var categoryRoot = isPs1 ? _ps1CardsRoot : _ps2CardsRoot;
+        Directory.CreateDirectory(categoryRoot);
+
+        var requestedStoredName =
+            entry.IsFolderCard
+                ? displayName
+                : displayName + entry.Extension;
+
+        var newLeafName =
+            CreateAvailableStoredName(
+                requestedStoredName,
+                entry.IsFolderCard,
+                categoryRoot,
+                oldPath);
+        var newPath = Path.Combine(categoryRoot, newLeafName);
+
+        if (!oldPath.Equals(newPath, StringComparison.OrdinalIgnoreCase))
+        {
+            if (entry.IsFolderCard)
+                Directory.Move(oldPath, newPath);
+            else
+                File.Move(oldPath, newPath);
+        }
+
+        entry.DisplayName = displayName;
+        entry.StoredName = Path.Combine(categoryName, newLeafName);
+        entry.IsUserRenamed = false;
+        entry.OriginalDisplayName = displayName;
         entry.ModifiedUtc = DateTime.UtcNow;
 
         await SaveAsync(index, cancellationToken);

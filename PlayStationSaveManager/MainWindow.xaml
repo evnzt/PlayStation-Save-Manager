@@ -1963,7 +1963,7 @@
                                             Background="#2A3C52" VerticalAlignment="Center"/>
                                     <WrapPanel VerticalAlignment="Center">
                                         <Button Content="Import Saves" Click="LibraryImport_Click"/>
-                                        <Button Content="Import Card" Click="LibraryImportCard_Click"/>
+                                        <Button Content="Import Cards" Click="LibraryImportCard_Click"/>
                                         <Button Content="Open Library Folder" Click="LibraryOpenFolder_Click"/>
                                     </WrapPanel>
                                 </StackPanel>
@@ -2010,7 +2010,8 @@
                                       MouseDoubleClick="SaveLibraryList_MouseDoubleClick"
                                       Background="#070D13"
                                       BorderBrush="#1E3045"
-                                      ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                      ScrollViewer.CanContentScroll="False">
                                 <ListView.ItemTemplate>
                                     <DataTemplate>
                                         <Grid Margin="2,4">
@@ -2067,7 +2068,7 @@
                                                 <TextBlock Text="{Binding DirectoryId}"
                                                            Foreground="#BCD0E7"
                                                            TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock Text="{Binding FormatName}"
+                                                <TextBlock Text="{Binding ListFormatDisplay}"
                                                            Foreground="#7F93AA"
                                                            FontSize="11"
                                                            Margin="0,2,0,0"/>
@@ -2113,7 +2114,8 @@
                                       SelectionChanged="MemoryCardLibraryList_SelectionChanged"
                                       Background="#070D13"
                                       BorderBrush="#1E3045"
-                                      ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                      ScrollViewer.CanContentScroll="False">
                                 <ListView.ItemTemplate>
                                     <DataTemplate>
                                         <Grid Margin="6,7">
@@ -2191,10 +2193,37 @@
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
 
-                            <TextBlock x:Name="LibraryMetadataHeading"
-                                       Text="SAVE METADATA"
-                                       FontSize="20"
-                                       FontWeight="Bold"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="LibraryMetadataHeading"
+                                           Text="SAVE METADATA"
+                                           FontSize="20"
+                                           FontWeight="Bold"
+                                           VerticalAlignment="Center"/>
+                                <StackPanel Grid.Column="1"
+                                            Orientation="Horizontal"
+                                            VerticalAlignment="Center">
+                                    <Button x:Name="LibraryResetNameButton"
+                                            Content="Reset Name"
+                                            Width="92"
+                                            Height="34"
+                                            Padding="10,5"
+                                            Margin="0,0,6,0"
+                                            Click="LibraryResetName_Click"
+                                            IsEnabled="False"
+                                            ToolTip="Reset the selected save or memory-card name"/>
+                                    <Button x:Name="LibraryResetAllNamesButton"
+                                            Content="Reset Names"
+                                            Width="92"
+                                            Height="34"
+                                            Padding="10,5"
+                                            Click="LibraryResetAllNames_Click"
+                                            ToolTip="Reset all custom save and memory-card names"/>
+                                </StackPanel>
+                            </Grid>
 
                             <Border Grid.Row="1"
                                     Background="#05090E"
@@ -2354,15 +2383,46 @@
                                            Style="{StaticResource SelectableDisplayText}"/>
                             </Grid>
 
-                            <StackPanel Grid.Row="4" Margin="0,10,0,0">
-                                <TextBlock Text="Duplicate Status"
+                            <StackPanel x:Name="LibrarySaveStatusPanel"
+                                        Grid.Row="4"
+                                        Margin="0,10,0,0">
+                                <TextBlock Text="Save Status"
                                            FontWeight="SemiBold"/>
-                                <TextBox x:Name="LibraryDuplicateStatus"
-                                           Text="—"
-                                           Foreground="#9FB0C5"
-                                           TextWrapping="Wrap"
-                                           Margin="0,5,0,0"
-                                           Style="{StaticResource SelectableDisplayText}"/>
+                                <Grid Margin="0,5,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock x:Name="LibraryDuplicateStatus"
+                                               Grid.Column="0"
+                                               Text="—"
+                                               Foreground="#9FB0C5"
+                                               TextWrapping="Wrap"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,10,0"/>
+
+                                    <Button x:Name="LibraryRelationshipsButton"
+                                            Grid.Column="1"
+                                            Content="View Saves"
+                                            Padding="0"
+                                            Margin="8,0,0,0"
+                                            MinWidth="0"
+                                            MinHeight="0"
+                                            Height="Auto"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Foreground="#8FC7FF"
+                                            FontWeight="SemiBold"
+                                            HorizontalAlignment="Right"
+                                            VerticalAlignment="Center"
+                                            Cursor="Hand"
+                                            Visibility="Collapsed"
+                                            Click="LibraryRelationshipsButton_Click"/>
+
+                                    <ItemsControl x:Name="LibrarySaveRelationships"
+                                                  Visibility="Collapsed"/>
+                                </Grid>
                             </StackPanel>
 
                             <WrapPanel Grid.Row="5" Margin="0,10,0,0">
@@ -2422,7 +2482,7 @@
                                         Margin="3,2"
                                         Click="LibraryRename_Click"
                                         IsEnabled="False"
-                                        Visibility="Collapsed">
+                                        Visibility="Visible">
                                     <StackPanel Orientation="Horizontal">
                                         <Image Source="{StaticResource IconRenameCard}"
                                                Style="{StaticResource ButtonIcon}"/>
@@ -2549,7 +2609,6 @@
                                             <RowDefinition Height="Auto"/>
                                             <RowDefinition Height="Auto"/>
                                             <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
                                         </Grid.RowDefinitions>
 
                                         <TextBlock Text="Directory ID" Foreground="#7F93AA"/>
@@ -2558,36 +2617,32 @@
 
                                         <TextBlock Grid.Row="1" Text="Format" Foreground="#7F93AA" Margin="0,8,0,0"/>
                                         <TextBox x:Name="SaveInfoFormat" Grid.Row="1" Grid.Column="1" Text="—" Margin="0,8,0,0"
-                                           Style="{StaticResource SelectableDisplayText}"/>
-
-                                        <TextBlock Grid.Row="2" Text="Imported From" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBox x:Name="SaveInfoImportedFrom" Grid.Row="2" Grid.Column="1" Text="—" Margin="0,8,0,0"
                                            TextWrapping="Wrap"
                                            Style="{StaticResource SelectableDisplayText}"/>
 
-                                        <TextBlock Grid.Row="3" Text="Size" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBox x:Name="SaveInfoSize" Grid.Row="3" Grid.Column="1" Text="—" Margin="0,8,0,0"
+                                        <TextBlock Grid.Row="2" Text="Size" Foreground="#7F93AA" Margin="0,8,0,0"/>
+                                        <TextBox x:Name="SaveInfoSize" Grid.Row="2" Grid.Column="1" Text="—" Margin="0,8,0,0"
                                            Style="{StaticResource SelectableDisplayText}"/>
 
-                                        <TextBlock Grid.Row="4" Text="Added" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBox x:Name="SaveInfoAdded" Grid.Row="4" Grid.Column="1" Text="—" Margin="0,8,0,0"
+                                        <TextBlock Grid.Row="3" Text="Added" Foreground="#7F93AA" Margin="0,8,0,0"/>
+                                        <TextBox x:Name="SaveInfoAdded" Grid.Row="3" Grid.Column="1" Text="—" Margin="0,8,0,0"
                                            Style="{StaticResource SelectableDisplayText}"/>
 
-                                        <TextBlock Grid.Row="5" Text="Modified" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBox x:Name="SaveInfoModified" Grid.Row="5" Grid.Column="1" Text="—" Margin="0,8,0,0"
+                                        <TextBlock Grid.Row="4" Text="Modified" Foreground="#7F93AA" Margin="0,8,0,0"/>
+                                        <TextBox x:Name="SaveInfoModified" Grid.Row="4" Grid.Column="1" Text="—" Margin="0,8,0,0"
                                            Style="{StaticResource SelectableDisplayText}"/>
 
-                                        <TextBlock Grid.Row="6" Text="CRC32" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBox x:Name="SaveInfoCrc32" Grid.Row="6" Grid.Column="1" Text="—" Margin="0,8,0,0" FontFamily="Consolas"
+                                        <TextBlock Grid.Row="5" Text="CRC32" Foreground="#7F93AA" Margin="0,8,0,0"/>
+                                        <TextBox x:Name="SaveInfoCrc32" Grid.Row="5" Grid.Column="1" Text="—" Margin="0,8,0,0" FontFamily="Consolas"
                                            Style="{StaticResource SelectableDisplayText}"/>
 
-                                        <TextBlock Grid.Row="7" Text="SHA-256" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBox x:Name="SaveInfoSha256" Grid.Row="7" Grid.Column="1" Text="—" Margin="0,8,0,0"
+                                        <TextBlock Grid.Row="6" Text="SHA-256" Foreground="#7F93AA" Margin="0,8,0,0"/>
+                                        <TextBox x:Name="SaveInfoSha256" Grid.Row="6" Grid.Column="1" Text="—" Margin="0,8,0,0"
                                                    FontFamily="Consolas" FontSize="10" TextWrapping="Wrap"
                                            Style="{StaticResource SelectableDisplayText}"/>
 
-                                        <TextBlock Grid.Row="8" Text="Duplicate Status" Foreground="#7F93AA" Margin="0,8,0,0"/>
-                                        <TextBox x:Name="SaveInfoDuplicate" Grid.Row="8" Grid.Column="1" Text="—" Margin="0,8,0,0"
+                                        <TextBlock Grid.Row="7" Text="Save Status" Foreground="#7F93AA" Margin="0,8,0,0"/>
+                                        <TextBox x:Name="SaveInfoDuplicate" Grid.Row="7" Grid.Column="1" Text="—" Margin="0,8,0,0"
                                                    TextWrapping="Wrap"
                                            Style="{StaticResource SelectableDisplayText}"/>
                                     </Grid>

@@ -42,13 +42,78 @@ public sealed class MemoryCardLibraryEntry : INotifyPropertyChanged
     public string Sha256 { get; set; } = string.Empty;
     public DateTime AddedUtc { get; set; } = DateTime.UtcNow;
     public DateTime ModifiedUtc { get; set; } = DateTime.UtcNow;
+    public bool IsUserRenamed { get; set; }
+    public string OriginalDisplayName { get; set; } = string.Empty;
 
     [JsonIgnore] public string SizeDisplay =>
         IsFolderCard ? "Infinite capacity" :
         CapacityBytes is > 0 ? FormatBytes(CapacityBytes.Value) : FormatBytes(SizeBytes);
     [JsonIgnore] public string StoredSizeDisplay => FormatBytes(SizeBytes);
     [JsonIgnore] public string SaveCountDisplay => $"{SaveCount} {(SaveCount == 1 ? "save" : "saves")}";
-    [JsonIgnore] public string DisplaySubtitle => $"{Platform} • {CardType}";
+
+    [JsonIgnore]
+    public string CardTypeDisplay
+    {
+        get
+        {
+            if (IsFolderCard ||
+                Extension.Equals(
+                    ".foldercard",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return "PCSX2 Folder Card (*.foldercard)";
+            }
+
+            var isPs1 =
+                Platform.Contains(
+                    "PlayStation",
+                    StringComparison.OrdinalIgnoreCase) &&
+                !Platform.Contains(
+                    "2",
+                    StringComparison.OrdinalIgnoreCase);
+
+            if (isPs1)
+            {
+                return Extension.ToLowerInvariant() switch
+                {
+                    ".bin" => "pSX / AdriPSX Memory Card (*.bin)",
+                    ".ddf" => "DataDeck Memory Card (*.ddf)",
+                    ".gme" => "DexDrive Memory Card (*.gme)",
+                    ".mc" => "PSXGame Edit Memory Card (*.mc)",
+                    ".mcd" => "Bleem! Memory Card (*.mcd)",
+                    ".mci" => "MCExplorer Memory Card (*.mci)",
+                    ".mcr" => "ePSXe / PSEmu Pro Memory Card (*.mcr)",
+                    ".mem" => "VGS / Connectix Memory Card (*.mem)",
+                    ".ps" => "WinPSM Memory Card (*.ps)",
+                    ".psm" => "Smart Link Memory Card (*.psm)",
+                    ".sav" => "SAV Memory Card (*.sav)",
+                    ".srm" => "RetroArch / Libretro Memory Card (*.srm)",
+                    ".vgs" => "VGS / Connectix Memory Card (*.vgs)",
+                    ".vm1" => "PS3 Virtual Memory Card (*.vm1)",
+                    ".vmc" => "Virtual Memory Card (*.vmc)",
+                    ".vmp" => "PSP Virtual Memory Card (*.vmp)",
+                    _ => string.IsNullOrWhiteSpace(CardType)
+                        ? Extension.TrimStart('.').ToUpperInvariant()
+                        : CardType
+                };
+            }
+
+            return Extension.ToLowerInvariant() switch
+            {
+                ".bin" => "PS2 BIN Memory Card (*.bin)",
+                ".mc2" => "MemCard PRO2 Memory Card (*.mc2)",
+                ".mcd" => "PS2 MCD Memory Card (*.mcd)",
+                ".ps2" => "PCSX2 Memory Card (*.ps2)",
+                ".vm2" => "PS2 Virtual Memory Card (*.vm2)",
+                ".vmc" => "PS2 VMC Memory Card (*.vmc)",
+                _ => string.IsNullOrWhiteSpace(CardType)
+                    ? Extension.TrimStart('.').ToUpperInvariant()
+                    : CardType
+            };
+        }
+    }
+
+    [JsonIgnore] public string DisplaySubtitle => $"{Platform} • {CardTypeDisplay}";
 
     [JsonIgnore]
     public string LibraryIconPath =>

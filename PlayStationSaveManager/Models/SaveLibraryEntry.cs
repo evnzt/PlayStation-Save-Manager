@@ -26,6 +26,8 @@ public sealed class SaveLibraryEntry : INotifyPropertyChanged
     public string Sha256 { get; set; } = string.Empty;
     public DateTime AddedUtc { get; set; } = DateTime.UtcNow;
     public DateTime ModifiedUtc { get; set; } = DateTime.UtcNow;
+    public bool IsUserRenamed { get; set; }
+    public string OriginalDisplayTitle { get; set; } = string.Empty;
 
     public bool IsFavorite
     {
@@ -80,6 +82,30 @@ public sealed class SaveLibraryEntry : INotifyPropertyChanged
             return $"{platform} • {subtitle}";
         }
     }
+
+    [JsonIgnore]
+    public string ListFormatDisplay =>
+        Extension.ToLowerInvariant() switch
+        {
+            ".cbs" => "CBS • CodeBreaker",
+            ".max" => "MAX • Action Replay MAX",
+            ".psu" => "PSU • EMS / uLaunchELF",
+            ".psv" => "PSV • PS3 Virtual Save",
+            ".sps" => "SPS • SharkPort",
+            ".xps" => "XPS • X-Port / Xploder",
+            ".mcb" => "MCB • Smart Link",
+            ".mcs" => "MCS • PSXGameEdit",
+            ".mcx" => "MCX • Datel",
+            ".pda" => "PDA • Datel",
+            ".ps1" => "PS1 • Memory Juggler",
+            ".psx" => "PSX • X-Port / AR / GameShark",
+            ".raw" => "RAW",
+            ".ps1save" => "PSM PlayStation Save Package",
+            ".ps2save" => "PSM PlayStation Save Package",
+            _ => string.IsNullOrWhiteSpace(FormatName)
+                ? Extension.TrimStart('.').ToUpperInvariant()
+                : FormatName
+        };
 
     [JsonIgnore]
     public string SizeDisplay =>

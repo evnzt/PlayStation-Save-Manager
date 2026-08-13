@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -1010,17 +1011,61 @@ public sealed class MyMcEngine
         string packagePath,
         CancellationToken cancellationToken = default)
     {
-        if (Directory.Exists(cardPath))
-        {
-            await ExtractPsuToPcsx2FolderAsync(
-                packagePath,
-                cardPath,
-                cancellationToken);
-            return;
-        }
+        string? temporaryPsu = null;
 
-        var result = await RunAsync(cardPath, ["import", packagePath], TimeSpan.FromSeconds(60), cancellationToken);
-        EnsureSuccess(result, "Could not import the save");
+        try
+        {
+            if (Path.GetExtension(packagePath).Equals(
+                    ".ps2save",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                temporaryPsu =
+                    Path.Combine(
+                        Path.GetTempPath(),
+                        "PSM-PS2SAVE-IMPORT-" +
+                        Guid.NewGuid().ToString("N") +
+                        ".psu");
+
+                await Ps2SavePackageService.ExtractPsuAsync(
+                    packagePath,
+                    temporaryPsu,
+                    cancellationToken);
+
+                packagePath =
+                    temporaryPsu;
+            }
+
+            if (Directory.Exists(cardPath))
+            {
+                await ExtractPsuToPcsx2FolderAsync(
+                    packagePath,
+                    cardPath,
+                    cancellationToken);
+                return;
+            }
+
+            var result =
+                await RunAsync(
+                    cardPath,
+                    ["import", packagePath],
+                    TimeSpan.FromSeconds(60),
+                    cancellationToken);
+
+            EnsureSuccess(
+                result,
+                "Could not import the save");
+        }
+        finally
+        {
+            if (temporaryPsu is not null)
+            {
+                try
+                {
+                    File.Delete(temporaryPsu);
+                }
+                catch { }
+            }
+        }
     }
 
     public async Task DeleteAsync(
@@ -1222,6 +1267,44 @@ public sealed class MyMcEngine
         string destinationPath,
         CancellationToken cancellationToken = default) =>
         CreateCardAsync(destinationPath, 8, cancellationToken);
+
+    public async Task FormatExistingCardAsync(
+        string cardPath,
+        int sizeMegabytes,
+        CancellationToken cancellationToken = default)
+    {
+        if (sizeMegabytes is not (8 or 16 or 32 or 64))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sizeMegabytes),
+                "PS2 memory card size must be 8, 16, 32, or 64 MB.");
+        }
+
+        if (!File.Exists(cardPath))
+        {
+            throw new FileNotFoundException(
+                "The copied memory-card image was not found.",
+                cardPath);
+        }
+
+        var clusters =
+            checked(sizeMegabytes * 1024);
+
+        var result =
+            await RunAsync(
+                cardPath,
+                ["format", "-c", clusters.ToString()],
+                TimeSpan.FromSeconds(180),
+                cancellationToken);
+
+        EnsureSuccess(
+            result,
+            "The copied PS2 memory card could not be formatted");
+
+        await CheckAsync(
+            cardPath,
+            cancellationToken);
+    }
 
     public async Task CreateCardAsync(
         string destinationPath,

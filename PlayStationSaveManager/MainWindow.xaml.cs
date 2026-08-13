@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private readonly GameMetadataService _gameMetadataService;
     private readonly Ps1GameMetadataService _ps1GameMetadataService;
     private readonly Ps1MemoryCardService _ps1CardService;
+    private readonly Ps2SavePackageService _ps2PackageService;
     private GameDatabaseStatus? _gameDatabaseStatus;
     private Ps1GameDatabaseStatus? _ps1GameDatabaseStatus;
     private SaveLibraryIndex _saveLibraryIndex = new();
@@ -42,6 +43,18 @@ public partial class MainWindow : Window
 
     private SaveLibraryContentMode _saveLibraryContentMode =
         SaveLibraryContentMode.GameSaves;
+
+    private sealed record SaveRelationshipLink(
+        string EntryId,
+        string Label,
+        string ToolTip,
+        BitmapSource? IconImage);
+
+    private readonly Dictionary<string, string>
+        _savePayloadFingerprintCache =
+            new(StringComparer.OrdinalIgnoreCase);
+
+    private int _saveStatusGeneration;
 
     private readonly Dictionary<string, BitmapSource>
         _saveLibraryIconMemoryCache =
@@ -224,6 +237,7 @@ public partial class MainWindow : Window
         _gameMetadataService = new GameMetadataService();
         _ps1GameMetadataService = new Ps1GameMetadataService();
         _ps1CardService = new Ps1MemoryCardService();
+        _ps2PackageService = new Ps2SavePackageService(_engine);
         LoadAutomaticBackupSetting();
         _iconService = new Ps2IconService(_engine, AppContext.BaseDirectory);
         CardAList.ItemsSource = _allA;
@@ -1842,7 +1856,23 @@ public partial class MainWindow : Window
         {
             SetBusy(true, "Exporting save...");
 
-            if (extension == ".foldercard")
+            if (extension == ".ps2save")
+            {
+                await _ps2PackageService.ExportFromCardAsync(
+                    card,
+                    save,
+                    output);
+
+                Log(
+                    $"Exported {save.DirectoryId} to PSM PS2 save package {output}.");
+
+                MessageBox.Show(
+                    "PSM PlayStation Save Package exported and verified successfully.",
+                    "Export Complete",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            else if (extension == ".foldercard")
             {
                 await CreateSingleSaveFolderCardAsync(
                     card,
@@ -2778,7 +2808,7 @@ public partial class MainWindow : Window
                 $"Directory ID: {save.DirectoryId}\n" +
                 $"Game Serial: " +
                 $"{(string.IsNullOrWhiteSpace(gameSerial) ? "Unknown" : gameSerial)}\n" +
-                $"Format: Native PS2 Memory Card Save\n" +
+                $"Format: PS2 Memory Card Save Directory\n" +
                 $"Size: {save.SizeText}";
 
             targetPlaceholder.Visibility = Visibility.Collapsed;
@@ -4813,23 +4843,21 @@ public partial class MainWindow : Window
 
             foreach (var save in saves)
             {
-                var temporaryPsu =
+                var temporaryPackage =
                     Path.Combine(
                         temporaryRoot,
                         SanitizeUniversalFileName(
                             save.DirectoryId) +
-                        "-" +
-                        Guid.NewGuid().ToString("N") +
-                        ".psu");
+                        ".ps2save");
 
-                await _engine.ExportPsuAsync(
+                await _ps2PackageService.ExportFromCardAsync(
                     cardPath,
-                    save.DirectoryId,
-                    temporaryPsu);
+                    save,
+                    temporaryPackage);
 
                 var result =
                     await _saveLibraryService.ImportAsync(
-                        temporaryPsu,
+                        temporaryPackage,
                         _saveLibraryIndex);
 
                 if (result.Duplicate is not null)
@@ -4841,10 +4869,11 @@ public partial class MainWindow : Window
                     continue;
                 }
 
-                result.Entry.FormatName =
-                    "Native PS2 Memory Card Save";
                 result.Entry.ImportedFrom =
-                    "PS2 Memory Card";
+                    GetLibrarySourceDisplayName(cardPath);
+                result.Entry.OriginalFileName =
+                    Path.GetFileName(
+                        result.Entry.StoredFileName);
 
                 await _saveLibraryService.SaveAsync(
                     _saveLibraryIndex);
@@ -5109,9 +5138,9 @@ public partial class MainWindow : Window
             if (result.Duplicate is null)
             {
                 entry.FormatName =
-                    "Native PS2 Memory Card Save";
+                    "EMS / Memory Linker PSU";
                 entry.ImportedFrom =
-                    "PS2 Memory Card";
+                    GetLibrarySourceDisplayName(cardPath);
 
                 await _saveLibraryService.SaveAsync(
                     _saveLibraryIndex);
@@ -5241,6 +5270,7 @@ await LoadSaveLibraryIconAsync(entry);
         LibrarySearchBox.IsEnabled = true;
         LibraryFilterButton.IsEnabled = true;
         LibraryMetadataHeading.Text = "SAVE METADATA";
+        LibrarySaveStatusPanel.Visibility = Visibility.Visible;
 
         LibraryMetaSerialLabel.Text = "Game Serial";
         LibraryMetaCrc32Label.Visibility = Visibility.Visible;
@@ -5250,13 +5280,23 @@ await LoadSaveLibraryIconAsync(entry);
         LibraryExportButton.Visibility = Visibility.Visible;
         LibraryExportCardButton.Visibility = Visibility.Visible;
         LibraryInfoButton.Visibility = Visibility.Visible;
-        LibraryRenameButton.Visibility = Visibility.Collapsed;
-        LibraryRenameButton.IsEnabled = false;
+        LibraryRenameButton.Visibility = Visibility.Visible;
+        LibraryRenameButton.IsEnabled = SaveLibraryList.SelectedItems.Count == 1;
         LibrarySlotAButtonText.Text = "Add to Card A";
         LibrarySlotBButtonText.Text = "Add to Card B";
 
+        var selectedEntry =
+            SaveLibraryList.SelectedItem as SaveLibraryEntry;
+
         UpdateSaveLibraryMetadata(
-            SaveLibraryList.SelectedItem as SaveLibraryEntry);
+            selectedEntry);
+
+        // UpdateSaveLibraryMetadata intentionally shows the temporary
+        // "Checking..." state. Re-run the relationship calculation when
+        // returning from Memory Cards so that state can never remain frozen.
+        if (selectedEntry is not null)
+            _ = UpdateSaveLibraryStatusAsync(selectedEntry);
+
         UpdateLibrarySummary();
     }
 
@@ -5265,12 +5305,17 @@ await LoadSaveLibraryIconAsync(entry);
         _saveLibraryContentMode =
             SaveLibraryContentMode.MemoryCards;
 
-        SaveLibraryList.SelectedItem = null;
+        _saveStatusGeneration++;
+
+        // Keep the current game-save selection while the list is hidden.
+        // The Save Information tab shares its animated preview model with that
+        // selection, so clearing it here would dispose the live preview state.
         SaveLibraryList.Visibility = Visibility.Collapsed;
         MemoryCardLibraryList.Visibility = Visibility.Visible;
         LibrarySearchBox.IsEnabled = false;
         LibraryFilterButton.IsEnabled = true;
         LibraryMetadataHeading.Text = "MEMORY CARD METADATA";
+        LibrarySaveStatusPanel.Visibility = Visibility.Collapsed;
 
         LibraryMetaSerialLabel.Text = "Game Saves";
         LibraryMetaCrc32Label.Visibility = Visibility.Collapsed;
@@ -5315,6 +5360,7 @@ await LoadSaveLibraryIconAsync(entry);
         LibraryMetaCrc32.Text = "—";
         LibraryMetaHash.Text = "—";
         LibraryDuplicateStatus.Text = "—";
+        SetLibraryRelationships(null);
         LibraryFavoriteButtonText.Text = "Add Favorite";
         LibraryFavoriteButton.IsEnabled = false;
         LibraryExportButton.IsEnabled = false;
@@ -5323,6 +5369,7 @@ await LoadSaveLibraryIconAsync(entry);
         LibrarySlotAButton.IsEnabled = false;
         LibrarySlotBButton.IsEnabled = false;
         LibraryRenameButton.IsEnabled = false;
+        LibraryResetNameButton.IsEnabled = false;
         LibraryRemoveButton.IsEnabled = false;
     }
 
@@ -5355,7 +5402,7 @@ await LoadSaveLibraryIconAsync(entry);
         LibraryMetaProfile.Text = entry.DisplaySubtitle;
         LibraryMetaDirectory.Text = entry.OriginalPath;
         LibraryMetaSerial.Text = entry.SaveCountDisplay;
-        LibraryMetaFormat.Text = entry.CardType;
+        LibraryMetaFormat.Text = entry.CardTypeDisplay;
         LibraryMetaSize.Text =
             $"{entry.SizeDisplay} • Stored: {entry.StoredSizeDisplay}";
         LibraryMetaAdded.Text =
@@ -5376,13 +5423,339 @@ await LoadSaveLibraryIconAsync(entry);
         LibrarySlotAButton.IsEnabled = true;
         LibrarySlotBButton.IsEnabled = true;
         LibraryRenameButton.IsEnabled = true;
+        LibraryResetNameButton.IsEnabled =
+            entry.IsUserRenamed ||
+            IsCardNameDifferentFromOriginal(entry);
         LibraryRemoveButton.IsEnabled = true;
+    }
+
+    private static bool IsCardNameDifferentFromOriginal(
+        MemoryCardLibraryEntry entry)
+    {
+        if (entry.IsUserRenamed)
+            return true;
+
+        if (string.IsNullOrWhiteSpace(entry.OriginalPath))
+            return false;
+
+        var trimmed = entry.OriginalPath.TrimEnd(
+            Path.DirectorySeparatorChar,
+            Path.AltDirectorySeparatorChar);
+        var leaf = Path.GetFileName(trimmed);
+
+        if (string.IsNullOrWhiteSpace(leaf))
+            return false;
+
+        var originalName = entry.IsFolderCard
+            ? leaf
+            : Path.GetFileNameWithoutExtension(leaf);
+
+        return !entry.DisplayName.Equals(
+            originalName,
+            StringComparison.CurrentCultureIgnoreCase);
+    }
+
+    private async void LibraryResetName_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_saveLibraryContentMode == SaveLibraryContentMode.GameSaves)
+        {
+            if (SaveLibraryList.SelectedItem is not SaveLibraryEntry entry ||
+                !entry.IsUserRenamed)
+                return;
+
+            var answer = MessageBox.Show(
+                $"Reset the name of '{entry.DisplayTitle}' to its original PSM name?",
+                "Reset Game Save Name",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (answer != MessageBoxResult.Yes)
+                return;
+
+            try
+            {
+                SetBusy(true, $"Resetting {entry.DisplayTitle}...");
+                var selectedId = entry.Id;
+
+                await _saveLibraryService.ResetNameAsync(
+                    entry,
+                    _saveLibraryIndex);
+
+                ApplySaveLibraryFilter();
+
+                var reset = _saveLibraryIndex.Entries.FirstOrDefault(
+                    candidate => candidate.Id.Equals(
+                        selectedId,
+                        StringComparison.OrdinalIgnoreCase));
+
+                if (reset is not null)
+                {
+                    SaveLibraryList.SelectedItem = reset;
+                    SaveLibraryList.ScrollIntoView(reset);
+                    UpdateSaveLibraryMetadata(reset);
+                }
+
+                LibraryFooterStatus.Text = "Game save name reset.";
+            }
+            catch (Exception ex)
+            {
+                Log($"Save Library reset name failed: {ex.Message}");
+                MessageBox.Show(
+                    ex.Message,
+                    "Could Not Reset Game Save Name",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            finally
+            {
+                SetBusy(false, "Ready.");
+            }
+
+            return;
+        }
+
+        if (MemoryCardLibraryList.SelectedItem is not MemoryCardLibraryEntry card ||
+            !(card.IsUserRenamed || IsCardNameDifferentFromOriginal(card)))
+            return;
+
+        var cardAnswer = MessageBox.Show(
+            $"Reset the name of '{card.DisplayName}' to its original card name?",
+            "Reset Memory Card Name",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (cardAnswer != MessageBoxResult.Yes)
+            return;
+
+        try
+        {
+            SetBusy(true, $"Resetting {card.DisplayName}...");
+            var selectedId = card.Id;
+
+            await _memoryCardLibraryService.ResetNameAsync(
+                card,
+                _memoryCardLibraryIndex);
+
+            await LoadMemoryCardLibraryAsync();
+            ShowMemoryCardLibraryMode();
+
+            var reset = MemoryCardLibraryEntries.FirstOrDefault(
+                candidate => candidate.Id.Equals(
+                    selectedId,
+                    StringComparison.OrdinalIgnoreCase));
+
+            if (reset is not null)
+            {
+                MemoryCardLibraryList.SelectedItem = reset;
+                MemoryCardLibraryList.ScrollIntoView(reset);
+            }
+
+            LibraryFooterStatus.Text = "Memory card name reset.";
+        }
+        catch (Exception ex)
+        {
+            Log($"Memory Card reset name failed: {ex.Message}");
+            MessageBox.Show(
+                ex.Message,
+                "Could Not Reset Memory Card Name",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            SetBusy(false, "Ready.");
+        }
+    }
+
+    private async void LibraryResetAllNames_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var renamedSaves =
+            _saveLibraryIndex.Entries
+                .Where(entry => entry.IsUserRenamed)
+                .ToArray();
+
+        var renamedCards =
+            _memoryCardLibraryIndex.Entries
+                .Where(entry =>
+                    entry.IsUserRenamed ||
+                    IsCardNameDifferentFromOriginal(entry))
+                .ToArray();
+
+        if (renamedSaves.Length == 0 &&
+            renamedCards.Length == 0)
+        {
+            MessageBox.Show(
+                "There are no custom Library names to reset.",
+                "Reset Library Names",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        var answer = MessageBox.Show(
+            $"Reset {renamedSaves.Length} renamed game save(s) and " +
+            $"{renamedCards.Length} renamed memory card(s)?\n\n" +
+            "This restores PSM's original/canonical Library names. Save and card data are not changed.",
+            "Reset Entire Library Names",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (answer != MessageBoxResult.Yes)
+            return;
+
+        var failures = new List<string>();
+
+        try
+        {
+            SetBusy(true, "Resetting Library names...");
+
+            foreach (var entry in renamedSaves)
+            {
+                try
+                {
+                    await _saveLibraryService.ResetNameAsync(
+                        entry,
+                        _saveLibraryIndex);
+                }
+                catch (Exception ex)
+                {
+                    failures.Add($"{entry.DisplayTitle}: {ex.Message}");
+                }
+            }
+
+            foreach (var card in renamedCards)
+            {
+                try
+                {
+                    await _memoryCardLibraryService.ResetNameAsync(
+                        card,
+                        _memoryCardLibraryIndex);
+                }
+                catch (Exception ex)
+                {
+                    failures.Add($"{card.DisplayName}: {ex.Message}");
+                }
+            }
+
+            ApplySaveLibraryFilter();
+            await LoadMemoryCardLibraryAsync();
+
+            if (_saveLibraryContentMode == SaveLibraryContentMode.MemoryCards)
+                ShowMemoryCardLibraryMode();
+            else
+                ShowSaveLibraryMode();
+
+            LibraryFooterStatus.Text =
+                failures.Count == 0
+                    ? "All custom Library names reset."
+                    : $"Library names reset with {failures.Count} failure(s).";
+
+            if (failures.Count > 0)
+            {
+                MessageBox.Show(
+                    string.Join(
+                        Environment.NewLine,
+                        failures.Take(10)),
+                    "Some Names Could Not Be Reset",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+        }
+        finally
+        {
+            SetBusy(false, "Ready.");
+        }
     }
 
     private async void LibraryRename_Click(
         object sender,
         RoutedEventArgs e)
     {
+        if (_saveLibraryContentMode ==
+            SaveLibraryContentMode.GameSaves)
+        {
+            if (SaveLibraryList.SelectedItems.Count != 1 ||
+                SaveLibraryList.SelectedItem is not SaveLibraryEntry saveEntry)
+            {
+                return;
+            }
+
+            var saveRenameDefaultName =
+                !string.IsNullOrWhiteSpace(saveEntry.GameTitle)
+                    ? saveEntry.GameTitle
+                    : Path.GetFileNameWithoutExtension(
+                        saveEntry.OriginalFileName);
+
+            var saveRequestedName =
+                PromptForLibraryCardName(
+                    saveRenameDefaultName,
+                    "Rename Game Save",
+                    "Enter a new library name for this game save.",
+                    "PSM will rename the stored library copy in the same location. The save format and internal save data are preserved.");
+
+            if (string.IsNullOrWhiteSpace(saveRequestedName) ||
+                saveRequestedName.Trim().Equals(
+                    saveRenameDefaultName,
+                    StringComparison.CurrentCulture))
+            {
+                return;
+            }
+
+            try
+            {
+                SetBusy(
+                    true,
+                    $"Renaming {saveEntry.DisplayTitle}...");
+
+                var selectedId = saveEntry.Id;
+
+                await _saveLibraryService.RenameAsync(
+                    saveEntry,
+                    _saveLibraryIndex,
+                    saveRequestedName);
+
+                ApplySaveLibraryFilter();
+
+                var renamed =
+                    _saveLibraryIndex.Entries.FirstOrDefault(
+                        candidate =>
+                            candidate.Id.Equals(
+                                selectedId,
+                                StringComparison.OrdinalIgnoreCase));
+
+                if (renamed is not null)
+                {
+                    SaveLibraryList.SelectedItem = renamed;
+                    SaveLibraryList.ScrollIntoView(renamed);
+                    UpdateSaveLibraryMetadata(renamed);
+                }
+
+                LibraryFooterStatus.Text =
+                    $"Renamed game save to {renamed?.DisplayTitle ?? saveRequestedName}.";
+            }
+            catch (Exception ex)
+            {
+                Log(
+                    $"Save Library rename failed: {ex.Message}");
+
+                MessageBox.Show(
+                    ex.Message,
+                    "Could Not Rename Game Save",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            finally
+            {
+                SetBusy(false, "Ready.");
+            }
+
+            return;
+        }
+
         if (_saveLibraryContentMode !=
                 SaveLibraryContentMode.MemoryCards ||
             MemoryCardLibraryList.SelectedItem is not
@@ -5517,37 +5890,43 @@ await LoadSaveLibraryIconAsync(entry);
     {
         var choice =
             ShowFileOrFolderSourceDialog(
-                "IMPORT MEMORY CARD",
-                "Choose a supported memory-card file or a PCSX2 folder card.",
-                "Import Memory Card");
+                "IMPORT MEMORY CARDS",
+                "Choose one or more supported memory-card files or PCSX2 folder cards.",
+                "Import Memory Cards");
 
         if (choice == 0)
             return;
 
-        string cardPath;
+        string[] cardPaths;
 
         if (choice == 2)
         {
             var folderDialog =
                 new Microsoft.Win32.OpenFolderDialog
                 {
-                    Title = "Choose PCSX2 Folder Memory Card",
-                    Multiselect = false
+                    Title = "Choose PCSX2 Folder Memory Cards",
+                    Multiselect = true
                 };
 
             if (folderDialog.ShowDialog() != true)
                 return;
 
-            cardPath = folderDialog.FolderName;
+            cardPaths = folderDialog.FolderNames;
 
-            if (!File.Exists(
-                Path.Combine(
-                    cardPath,
-                    "_pcsx2_superblock")))
+            var invalidFolders =
+                cardPaths.Where(
+                    path =>
+                        !File.Exists(
+                            Path.Combine(
+                                path,
+                                "_pcsx2_superblock")))
+                    .ToArray();
+
+            if (invalidFolders.Length > 0)
             {
                 MessageBox.Show(
-                    "That folder does not contain _pcsx2_superblock.",
-                    "Not a PCSX2 Folder Card",
+                    $"{invalidFolders.Length} selected folder(s) are not PCSX2 Folder Cards because they do not contain _pcsx2_superblock.",
+                    "Invalid Folder Card Selection",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
                 return;
@@ -5558,29 +5937,392 @@ await LoadSaveLibraryIconAsync(entry);
             var fileDialog =
                 new Microsoft.Win32.OpenFileDialog
                 {
-                    Title = "Choose Memory Card",
-                    Multiselect = false,
+                    Title = "Choose Memory Cards",
+                    Multiselect = true,
                     Filter = FormatCatalog.SupportedMemoryCardFilter
                 };
 
             if (fileDialog.ShowDialog() != true)
                 return;
 
-            cardPath = fileDialog.FileName;
+            cardPaths = fileDialog.FileNames;
         }
 
-        await ImportMemoryCardIntoLibraryAsync(
-            cardPath);
+        if (cardPaths.Length == 0)
+            return;
+
+        var imported = 0;
+        var duplicates = 0;
+        var formatted = 0;
+        var skipped = 0;
+        var failed = 0;
+        MemoryCardLibraryEntry? lastEntry = null;
+
+        SetBusy(
+            true,
+            $"Importing {cardPaths.Length} memory card(s)...");
+
+        try
+        {
+            foreach (var cardPath in cardPaths)
+            {
+                string importPath =
+                    cardPath;
+                string? temporaryFormattedCard =
+                    null;
+                string? displayNameOverride =
+                    null;
+                string? originalPathOverride =
+                    null;
+
+                try
+                {
+                    var unformatted =
+                        await DetectUnformattedPs2CardAsync(
+                            cardPath);
+
+                    if (unformatted is not null)
+                    {
+                        var answer =
+                            MessageBox.Show(
+                                $"{Path.GetFileName(cardPath)} appears to be an unformatted " +
+                                $"{unformatted.Value.SizeMegabytes} MB PS2 memory card.\n\n" +
+                                "Would you like PSM to format a safe copy and add that copy to the Memory Card Library?\n\n" +
+                                "The original file will NOT be modified. Formatting creates a blank PS2 filesystem; " +
+                                "any data in the formatted copy would be erased.",
+                                "Unformatted PS2 Memory Card",
+                                MessageBoxButton.YesNo,
+                                MessageBoxImage.Warning);
+
+                        if (answer != MessageBoxResult.Yes)
+                        {
+                            skipped++;
+                            Log(
+                                $"Unformatted memory card skipped: {cardPath}");
+                            continue;
+                        }
+
+                        var temporaryRoot =
+                            Path.Combine(
+                                Path.GetTempPath(),
+                                "PSM-FORMAT-IMPORT-" +
+                                Guid.NewGuid().ToString("N"));
+
+                        Directory.CreateDirectory(
+                            temporaryRoot);
+
+                        temporaryFormattedCard =
+                            Path.Combine(
+                                temporaryRoot,
+                                Path.GetFileName(cardPath));
+
+                        // Make an actual byte-for-byte working copy of the
+                        // user's unformatted card image first. Formatting is
+                        // performed only against this copied file.
+                        File.Copy(
+                            cardPath,
+                            temporaryFormattedCard,
+                            overwrite: true);
+
+                        if (unformatted.Value.NoEcc)
+                        {
+                            // myMC++ formats ECC-layout images directly. For
+                            // a no-ECC source, format an ECC working copy and
+                            // convert back to no-ECC so the imported Library
+                            // card preserves the source layout.
+                            var eccWorkingCard =
+                                temporaryFormattedCard +
+                                ".ecc-working.ps2";
+
+                            await _engine.CreateCardAsync(
+                                eccWorkingCard,
+                                unformatted.Value.SizeMegabytes);
+
+                            var convertedNoEcc =
+                                temporaryFormattedCard +
+                                ".formatted-noecc.ps2";
+
+                            await _engine.CreateCardAsync(
+                                convertedNoEcc,
+                                unformatted.Value.SizeMegabytes,
+                                noEcc: true);
+
+                            File.Copy(
+                                convertedNoEcc,
+                                temporaryFormattedCard,
+                                overwrite: true);
+
+                            try
+                            {
+                                File.Delete(eccWorkingCard);
+                                File.Delete(convertedNoEcc);
+                            }
+                            catch { }
+                        }
+                        else
+                        {
+                            await _engine.FormatExistingCardAsync(
+                                temporaryFormattedCard,
+                                unformatted.Value.SizeMegabytes);
+                        }
+
+                        var verification =
+                            await _engine.ReadCardAsync(
+                                temporaryFormattedCard);
+
+                        if (verification.Saves.Count != 0)
+                        {
+                            throw new InvalidDataException(
+                                "The formatted memory-card copy was expected to be blank, but verification found saves.");
+                        }
+
+                        // Verification above already proved this is now a
+                        // valid blank PS2 card. Store that exact formatted copy
+                        // directly instead of sending it back through the
+                        // generic detector a second time.
+                        var stored =
+                            await _memoryCardLibraryService.StoreAsync(
+                                temporaryFormattedCard,
+                                "PlayStation 2",
+                                FormatCatalog.GetPs2CardTypeName(
+                                    temporaryFormattedCard),
+                                verification.Saves.Count,
+                                verification.TotalBytes,
+                                Path.GetFileNameWithoutExtension(
+                                    cardPath),
+                                cardPath);
+
+                        formatted++;
+                        lastEntry =
+                            stored.Entry;
+
+                        if (stored.Duplicate is not null)
+                            duplicates++;
+                        else
+                            imported++;
+
+                        Log(
+                            $"Formatted safe copy of unformatted PS2 card and imported it into the Library: {cardPath}");
+
+                        continue;
+                    }
+
+                    var result =
+                        await ImportMemoryCardIntoLibraryAsync(
+                            importPath,
+                            showMessage: false,
+                            manageBusyState: false,
+                            displayNameOverride:
+                                displayNameOverride,
+                            originalPathOverride:
+                                originalPathOverride);
+
+                    if (result is null)
+                    {
+                        failed++;
+                        continue;
+                    }
+
+                    lastEntry =
+                        result.Value.Entry;
+
+                    if (result.Value.Duplicate)
+                        duplicates++;
+                    else
+                        imported++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    Log(
+                        $"Memory Card Library import failed for {cardPath}: {ex}");
+                }
+                finally
+                {
+                    if (temporaryFormattedCard is not null)
+                    {
+                        try
+                        {
+                            var temporaryRoot =
+                                Path.GetDirectoryName(
+                                    temporaryFormattedCard);
+
+                            if (!string.IsNullOrWhiteSpace(
+                                    temporaryRoot) &&
+                                Directory.Exists(
+                                    temporaryRoot))
+                            {
+                                Directory.Delete(
+                                    temporaryRoot,
+                                    true);
+                            }
+                        }
+                        catch { }
+                    }
+                }
+            }
+
+            await LoadMemoryCardLibraryAsync();
+            ShowMemoryCardLibraryMode();
+
+            if (lastEntry is not null)
+            {
+                var selected =
+                    MemoryCardLibraryEntries.FirstOrDefault(
+                        entry =>
+                            entry.Id.Equals(
+                                lastEntry.Id,
+                                StringComparison.OrdinalIgnoreCase));
+
+                if (selected is not null)
+                {
+                    MemoryCardLibraryList.SelectedItem = selected;
+                    MemoryCardLibraryList.ScrollIntoView(selected);
+                }
+            }
+
+            LibraryFooterStatus.Text =
+                $"Memory-card import complete: {imported} imported, " +
+                $"{duplicates} duplicate(s), {formatted} formatted, " +
+                $"{skipped} skipped, {failed} failed.";
+
+            MessageBox.Show(
+                $"Memory-card import complete.\n\n" +
+                $"Imported: {imported}\n" +
+                $"Already in library: {duplicates}\n" +
+                $"Formatted before import: {formatted}\n" +
+                $"Skipped: {skipped}\n" +
+                $"Failed: {failed}",
+                "Import Cards Complete",
+                MessageBoxButton.OK,
+                failed > 0 || skipped > 0
+                    ? MessageBoxImage.Warning
+                    : MessageBoxImage.Information);
+        }
+        finally
+        {
+            SetBusy(false, "Ready.");
+        }
     }
 
-    private async Task ImportMemoryCardIntoLibraryAsync(
-        string cardPath)
+    private readonly record struct UnformattedPs2CardInfo(
+        int SizeMegabytes,
+        bool NoEcc);
+
+    private static async Task<UnformattedPs2CardInfo?> DetectUnformattedPs2CardAsync(
+        string path,
+        CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(path))
+            return null;
+
+        var extension =
+            Path.GetExtension(path)
+                .ToLowerInvariant();
+
+        if (extension is not ".ps2" and
+            not ".mc2" and
+            not ".mcd" and
+            not ".vm2" and
+            not ".vmc" and
+            not ".bin")
+        {
+            return null;
+        }
+
+        var length =
+            new FileInfo(path).Length;
+
+        int? sizeMegabytes =
+            null;
+        var noEcc =
+            false;
+
+        foreach (var candidate in new[] { 8, 16, 32, 64 })
+        {
+            var logicalBytes =
+                (long)candidate *
+                1024 *
+                1024;
+
+            var eccBytes =
+                logicalBytes /
+                512 *
+                528;
+
+            if (length == logicalBytes)
+            {
+                sizeMegabytes =
+                    candidate;
+                noEcc =
+                    true;
+                break;
+            }
+
+            if (length == eccBytes)
+            {
+                sizeMegabytes =
+                    candidate;
+                noEcc =
+                    false;
+                break;
+            }
+        }
+
+        if (sizeMegabytes is null)
+            return null;
+
+        // A brand-new/unformatted card image is erased flash: all bytes are FF.
+        // Stream the check so even a 64 MB card does not need to be loaded at once.
+        await using var stream =
+            new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                81920,
+                useAsync: true);
+
+        var buffer =
+            new byte[81920];
+
+        while (true)
+        {
+            var read =
+                await stream.ReadAsync(
+                    buffer.AsMemory(),
+                    cancellationToken);
+
+            if (read == 0)
+                break;
+
+            for (var index = 0; index < read; index++)
+            {
+                if (buffer[index] != 0xFF)
+                    return null;
+            }
+        }
+
+        return new UnformattedPs2CardInfo(
+            sizeMegabytes.Value,
+            noEcc);
+    }
+
+    private async Task<(MemoryCardLibraryEntry Entry, bool Duplicate)?> ImportMemoryCardIntoLibraryAsync(
+        string cardPath,
+        bool showMessage = true,
+        bool manageBusyState = true,
+        string? displayNameOverride = null,
+        string? originalPathOverride = null)
     {
         try
         {
-            SetBusy(
-                true,
-                $"Importing {Path.GetFileName(cardPath)} into the Memory Card Library...");
+            if (manageBusyState)
+            {
+                SetBusy(
+                    true,
+                    $"Importing {Path.GetFileName(cardPath)} into the Memory Card Library...");
+            }
 
             var isFolderCard =
                 Directory.Exists(cardPath);
@@ -5645,24 +6387,31 @@ await LoadSaveLibraryIconAsync(entry);
                     platform,
                     cardType,
                     saveCount,
-                    capacity);
+                    capacity,
+                    displayNameOverride,
+                    originalPathOverride);
 
-            await LoadMemoryCardLibraryAsync();
-            ShowMemoryCardLibraryMode();
+            if (showMessage)
+            {
+                await LoadMemoryCardLibraryAsync();
+                ShowMemoryCardLibraryMode();
 
-            MemoryCardLibraryList.SelectedItem =
-                stored.Entry;
+                MemoryCardLibraryList.SelectedItem =
+                    stored.Entry;
 
-            MemoryCardLibraryList.ScrollIntoView(
-                stored.Entry);
+                MemoryCardLibraryList.ScrollIntoView(
+                    stored.Entry);
 
-            MessageBox.Show(
-                stored.Duplicate is null
-                    ? $"{stored.Entry.DisplayName} was imported into the Memory Card Library."
-                    : $"{stored.Entry.DisplayName} is already in the Memory Card Library.",
-                "Import Card",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+                MessageBox.Show(
+                    stored.Duplicate is null
+                        ? $"{stored.Entry.DisplayName} was imported into the Memory Card Library."
+                        : $"{stored.Entry.DisplayName} is already in the Memory Card Library.",
+                    "Import Card",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+
+            return (stored.Entry, stored.Duplicate is not null);
         }
         catch (Exception ex)
         {
@@ -5674,15 +6423,21 @@ await LoadSaveLibraryIconAsync(entry);
                 "Memory Card Library import failed: " +
                 ex.Message);
 
-            MessageBox.Show(
-                ex.Message,
-                "Import Card Failed",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+            if (showMessage)
+            {
+                MessageBox.Show(
+                    ex.Message,
+                    "Import Card Failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+
+            return null;
         }
         finally
         {
-            SetBusy(false, "Ready.");
+            if (manageBusyState)
+                SetBusy(false, "Ready.");
         }
     }
 
@@ -6153,6 +6908,7 @@ await LoadSaveLibraryIconAsync(result.Entry);
             SaveLibraryList.SelectedItem as SaveLibraryEntry;
         _saveInformationEntry = entry;
         UpdateSaveLibraryMetadata(entry);
+        await UpdateSaveLibraryStatusAsync(entry);
         await UpdateSaveLibraryCrc32Async(entry);
         await LoadSaveLibraryPreviewAsync(entry);
 
@@ -6175,7 +6931,11 @@ await LoadSaveLibraryIconAsync(result.Entry);
         LibraryExportCardButton.IsEnabled = selectedCount > 0;
         LibraryInfoButton.IsEnabled = enabled && selectedCount == 1;
         RefreshLibrarySlotButtons();
-        LibraryRenameButton.IsEnabled = false;
+        LibraryRenameButton.IsEnabled = selectedCount == 1;
+        LibraryResetNameButton.IsEnabled =
+            selectedCount == 1 &&
+            entry is not null &&
+            entry.IsUserRenamed;
         LibraryRemoveButton.IsEnabled = selectedCount > 0;
 
         if (entry is null)
@@ -6197,6 +6957,7 @@ await LoadSaveLibraryIconAsync(result.Entry);
             LibraryMetaCrc32.Text = "—";
             LibraryMetaHash.Text = "—";
             LibraryDuplicateStatus.Text = "—";
+            SetLibraryRelationships(null);
             LibraryFavoriteButtonText.Text = "Add Favorite";
             return;
         }
@@ -6252,11 +7013,10 @@ await LoadSaveLibraryIconAsync(result.Entry);
         LibraryMetaSerial.Text =
             string.IsNullOrWhiteSpace(gameSerial) ? "Unknown" : gameSerial;
 
-        LibraryMetaFormat.Text = entry.FormatName;
+        LibraryMetaFormat.Text =
+            GetSaveLibraryFormatDisplay(entry);
         LibraryMetaFormat.ToolTip =
-            string.IsNullOrWhiteSpace(entry.ImportedFrom)
-                ? null
-                : $"Imported From: {entry.ImportedFrom}";
+            $"Imported From: {GetSaveLibraryImportedFromDisplay(entry)}";
         LibraryMetaSize.Text = entry.SizeDisplay;
         LibraryMetaAdded.Text =
             entry.AddedUtc.ToLocalTime().ToString("yyyy-MM-dd h:mm tt");
@@ -6279,16 +7039,863 @@ await LoadSaveLibraryIconAsync(result.Entry);
                     : (entry.IsFavorite ? "Remove Favorite" : "Add Favorite");
         }
 
-        var duplicates = _saveLibraryIndex.Entries
-            .Where(candidate =>
-                !ReferenceEquals(candidate, entry) &&
-                candidate.Sha256.Equals(entry.Sha256, StringComparison.OrdinalIgnoreCase))
-            .ToArray();
+        LibraryDuplicateStatus.Text = "Checking save relationships...";
+        SetLibraryRelationships(null);
+    }
 
-        LibraryDuplicateStatus.Text =
-            duplicates.Length == 0
-                ? "No exact duplicates detected."
-                : $"{duplicates.Length} exact duplicate(s) detected.";
+    private static string GetSaveLibraryFormatDisplay(
+        SaveLibraryEntry entry)
+    {
+        var isPs1 =
+            entry.Platform.Equals(
+                "PlayStation",
+                StringComparison.OrdinalIgnoreCase);
+
+        return entry.Extension.ToLowerInvariant() switch
+        {
+            ".cbs" => "PS2 Individual Save - CBS • CodeBreaker (*.cbs)",
+            ".max" => "PS2 Individual Save - MAX • Action Replay MAX (*.max)",
+            ".psu" => "PS2 Individual Save - PSU • EMS / uLaunchELF (*.psu)",
+            ".psv" => isPs1
+                ? "PS1 Individual Save - PSV • PS3 Virtual Save (*.psv)"
+                : "PS2 Individual Save - PSV • PS3 Virtual Save (*.psv)",
+            ".sps" => "PS2 Individual Save - SPS • SharkPort (*.sps)",
+            ".xps" => "PS2 Individual Save - XPS • X-Port / Xploder (*.xps)",
+
+            ".mcb" => "PS1 Individual Save - MCB • Smart Link (*.mcb)",
+            ".mcs" => "PS1 Individual Save - MCS • PSXGameEdit (*.mcs)",
+            ".mcx" => "PS1 Individual Save - MCX • Datel (*.mcx)",
+            ".pda" => "PS1 Individual Save - PDA • Datel (*.pda)",
+            ".ps1" => "PS1 Individual Save - PS1 • Memory Juggler (*.ps1)",
+            ".psx" => "PS1 Individual Save - PSX • X-Port / AR / GameShark (*.psx)",
+            ".raw" => "PS1 Individual Save - RAW (*.raw)",
+            ".ps1save" => "PSM PlayStation Save Package (*.ps1save)",
+            ".ps2save" => "PSM PlayStation Save Package (*.ps2save)",
+            _ => entry.FormatName
+        };
+    }
+
+    private static string GetSaveLibraryImportedFromDisplay(
+        SaveLibraryEntry entry)
+    {
+        if (!string.IsNullOrWhiteSpace(
+                entry.ImportedFrom))
+        {
+            // Old direct-from-card entries only recorded this generic marker.
+            // The precise source filename was never persisted, so do not invent one.
+            if (entry.ImportedFrom.Equals(
+                    "PS2 Memory Card",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return "PS2 Memory Card • legacy source name not recorded";
+            }
+
+            return entry.ImportedFrom;
+        }
+
+        // Very old library entries did not persist ImportedFrom at all.
+        if (entry.FormatName.Equals(
+                "Native PS2 Memory Card Save",
+                StringComparison.OrdinalIgnoreCase) ||
+            entry.FormatName.Equals(
+                "PS2 Memory Card Save Directory",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return "PS2 Memory Card • legacy source name not recorded";
+        }
+
+        if (!string.IsNullOrWhiteSpace(
+                entry.OriginalFileName))
+        {
+            return entry.OriginalFileName;
+        }
+
+        return "Legacy library entry • source not recorded";
+    }
+
+    private static string GetLibrarySourceDisplayName(
+        string sourcePath)
+    {
+        if (Directory.Exists(sourcePath))
+        {
+            var trimmed =
+                sourcePath.TrimEnd(
+                    Path.DirectorySeparatorChar,
+                    Path.AltDirectorySeparatorChar);
+
+            var folderName =
+                Path.GetFileName(trimmed);
+
+            return string.IsNullOrWhiteSpace(folderName)
+                ? "PCSX2 Folder Card"
+                : $"{folderName} • PCSX2 Folder Card";
+        }
+
+        var fileName =
+            Path.GetFileName(sourcePath);
+
+        return string.IsNullOrWhiteSpace(fileName)
+            ? sourcePath
+            : fileName;
+    }
+
+    private async Task UpdateSaveLibraryStatusAsync(
+        SaveLibraryEntry? entry)
+    {
+        var generation =
+            ++_saveStatusGeneration;
+
+        if (entry is null)
+        {
+            LibraryDuplicateStatus.Text = "—";
+            SetLibraryRelationships(null);
+            return;
+        }
+
+        bool IsCurrent()
+        {
+            return generation == _saveStatusGeneration &&
+                   _saveLibraryContentMode ==
+                       SaveLibraryContentMode.GameSaves &&
+                   ReferenceEquals(
+                       SaveLibraryList.SelectedItem,
+                       entry);
+        }
+
+        try
+        {
+            var selectedFingerprint =
+                await GetSavePayloadFingerprintAsync(entry);
+
+            if (!IsCurrent())
+                return;
+
+            var matching = new List<SaveLibraryEntry>();
+            var related = new List<SaveLibraryEntry>();
+
+            foreach (var candidate in _saveLibraryIndex.Entries)
+            {
+                if (!IsCurrent())
+                    return;
+
+                if (candidate.Id.Equals(
+                        entry.Id,
+                        StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (!AreRelatedSaveIdentities(entry, candidate))
+                    continue;
+
+                var candidateFingerprint =
+                    await GetSavePayloadFingerprintAsync(candidate);
+
+                if (!IsCurrent())
+                    return;
+
+                if (!string.IsNullOrWhiteSpace(selectedFingerprint) &&
+                    selectedFingerprint.Equals(
+                        candidateFingerprint,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    matching.Add(candidate);
+                }
+                else
+                {
+                    related.Add(candidate);
+                }
+            }
+
+            if (!IsCurrent())
+                return;
+
+            var links =
+                matching.Select(
+                    candidate =>
+                        new SaveRelationshipLink(
+                            candidate.Id,
+                            $"{candidate.DisplayTitle} ({candidate.Extension.ToUpperInvariant()})",
+                            "Same underlying save data in another library entry. Click to open it.",
+                            candidate.IconImage))
+                .Concat(
+                    related.Select(
+                        candidate =>
+                            new SaveRelationshipLink(
+                                candidate.Id,
+                                $"{candidate.DisplayTitle} ({candidate.Extension.ToUpperInvariant()})",
+                                "Same game, different underlying save data. Click to open it.",
+                                candidate.IconImage)))
+                .ToArray();
+
+            if (!IsCurrent())
+                return;
+
+            LibraryDuplicateStatus.Text =
+                matching.Count == 0 && related.Count == 0
+                    ? "Unique Save • No matching or related saves found."
+                    : matching.Count > 0 && related.Count > 0
+                        ? $"Matching Save • {matching.Count} match(es)  •  Related Saves • {related.Count}"
+                        : matching.Count > 0
+                            ? $"Matching Save • {matching.Count} match(es)"
+                            : $"Related Saves • {related.Count}";
+
+            SetLibraryRelationships(
+                links.Length == 0 ? null : links);
+        }
+        catch (Exception ex)
+        {
+            if (IsCurrent())
+            {
+                LibraryDuplicateStatus.Text =
+                    "Save relationship status unavailable.";
+                SetLibraryRelationships(null);
+            }
+
+            Log(
+                $"Save Status failed for {entry.OriginalFileName}: {ex.Message}");
+        }
+    }
+
+    private static bool AreRelatedSaveIdentities(
+        SaveLibraryEntry left,
+        SaveLibraryEntry right)
+    {
+        if (!left.Platform.Equals(
+                right.Platform,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var leftSerial =
+            ExtractGameSerial(
+                left.DirectoryId);
+
+        var rightSerial =
+            ExtractGameSerial(
+                right.DirectoryId);
+
+        // Game serial is the strongest relationship signal. This intentionally
+        // groups separate save directories from the same title, such as:
+        // BASLUS-21004Options and BASLUS-21004BEAMIN -> SLUS-21004.
+        if (!string.IsNullOrWhiteSpace(
+                leftSerial) &&
+            !string.IsNullOrWhiteSpace(
+                rightSerial))
+        {
+            return leftSerial.Equals(
+                rightSerial,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        // If a reliable serial cannot be extracted, matching full directory IDs
+        // still identify alternate versions/snapshots of the same save family.
+        if (!string.IsNullOrWhiteSpace(
+                left.DirectoryId) &&
+            !string.IsNullOrWhiteSpace(
+                right.DirectoryId) &&
+            left.DirectoryId.Equals(
+                right.DirectoryId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Final fallback for legacy/odd packages where only the title is usable.
+        return !string.IsNullOrWhiteSpace(
+                   left.GameTitle) &&
+               !string.IsNullOrWhiteSpace(
+                   right.GameTitle) &&
+               left.GameTitle.Equals(
+                   right.GameTitle,
+                   StringComparison.CurrentCultureIgnoreCase);
+    }
+
+    private async Task<string> GetSavePayloadFingerprintAsync(
+        SaveLibraryEntry entry)
+    {
+        if (_savePayloadFingerprintCache.TryGetValue(
+                entry.Id,
+                out var cached))
+        {
+            return cached;
+        }
+
+        var storedPath =
+            _saveLibraryService.GetStoredPath(entry);
+
+        if (!File.Exists(storedPath))
+            return string.Empty;
+
+        string fingerprint;
+
+        if (entry.Extension.Equals(
+                ".ps1save",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            fingerprint =
+                await ComputePs1PackagePayloadFingerprintAsync(
+                    storedPath);
+        }
+        else
+        {
+            fingerprint =
+                await ComputePs2PackagePayloadFingerprintAsync(
+                    entry,
+                    storedPath);
+        }
+
+        _savePayloadFingerprintCache[entry.Id] =
+            fingerprint;
+
+        return fingerprint;
+    }
+
+    private static async Task<string>
+        ComputePs1PackagePayloadFingerprintAsync(
+            string packagePath)
+    {
+        using var sha =
+            System.Security.Cryptography.SHA256.Create();
+
+        await using var stream =
+            File.OpenRead(packagePath);
+
+        using var archive =
+            new System.IO.Compression.ZipArchive(
+                stream,
+                System.IO.Compression.ZipArchiveMode.Read,
+                leaveOpen: false);
+
+        var blocks =
+            archive.GetEntry("save-blocks.bin")
+            ?? throw new InvalidDataException(
+                "The PS1 package has no save-block payload.");
+
+        await using var payload =
+            blocks.Open();
+
+        var hash =
+            await sha.ComputeHashAsync(payload);
+
+        return Convert.ToHexString(hash);
+    }
+
+    private async Task<string>
+        ComputePs2PackagePayloadFingerprintAsync(
+            SaveLibraryEntry entry,
+            string packagePath)
+    {
+        var temporaryRoot =
+            Path.Combine(
+                Path.GetTempPath(),
+                "PSM-SAVE-STATUS-" +
+                Guid.NewGuid().ToString("N"));
+
+        Directory.CreateDirectory(
+            temporaryRoot);
+
+        try
+        {
+            var cardPath =
+                Path.Combine(
+                    temporaryRoot,
+                    "status.ps2");
+
+            await _engine.CreateCardAsync(
+                cardPath,
+                false);
+
+            var importPath =
+                packagePath;
+
+            if (entry.Extension.Equals(
+                    ".sps",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                importPath =
+                    Path.Combine(
+                        temporaryRoot,
+                        "status.psu");
+
+                await SpsPackageService.ConvertToPsuAsync(
+                    packagePath,
+                    importPath);
+            }
+
+            await _engine.ImportAsync(
+                cardPath,
+                importPath);
+
+            await _engine.CheckAsync(
+                cardPath);
+
+            var saves =
+                await _engine.ReadDirectoryAsync(
+                    cardPath);
+
+            var save =
+                saves.FirstOrDefault(
+                    candidate =>
+                        candidate.DirectoryId.Equals(
+                            entry.DirectoryId,
+                            StringComparison.OrdinalIgnoreCase))
+                ?? saves.FirstOrDefault()
+                ?? throw new InvalidDataException(
+                    "The package did not contain a readable PS2 save.");
+
+            var canonicalPsu =
+                Path.Combine(
+                    temporaryRoot,
+                    "canonical.psu");
+
+            await _engine.ExportPsuAsync(
+                cardPath,
+                save.DirectoryId,
+                canonicalPsu);
+
+            var bytes =
+                await File.ReadAllBytesAsync(
+                    canonicalPsu);
+
+            // PSU timestamps live in the directory-entry metadata and can
+            // differ when the same save is wrapped by another package format.
+            // Hash the canonical PSU payload after its fixed 0x200-byte header.
+            var payloadOffset =
+                Math.Min(
+                    0x200,
+                    bytes.Length);
+
+            var hash =
+                System.Security.Cryptography.SHA256.HashData(
+                    bytes.AsSpan(payloadOffset));
+
+            return Convert.ToHexString(hash);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(
+                        temporaryRoot))
+                {
+                    Directory.Delete(
+                        temporaryRoot,
+                        recursive: true);
+                }
+            }
+            catch { }
+        }
+    }
+
+    private void SetLibraryRelationships(
+        IReadOnlyCollection<SaveRelationshipLink>? links)
+    {
+        LibrarySaveRelationships.ItemsSource = links;
+
+        if (links is null ||
+            links.Count == 0)
+        {
+            LibraryRelationshipsButton.Visibility =
+                Visibility.Collapsed;
+            LibraryRelationshipsButton.Content =
+                "View Saves";
+            return;
+        }
+
+        LibraryRelationshipsButton.Content =
+            links.Count == 1
+                ? "View 1 Save"
+                : $"View {links.Count} Saves";
+
+        LibraryRelationshipsButton.Visibility =
+            Visibility.Visible;
+    }
+
+    private void LibraryRelationshipsButton_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var links =
+            LibrarySaveRelationships.ItemsSource
+                as IEnumerable<SaveRelationshipLink>;
+
+        if (links is null)
+            return;
+
+        var items =
+            links.ToArray();
+
+        if (items.Length == 0)
+            return;
+
+        var window =
+            new Window
+            {
+                Title =
+                    items.Length == 1
+                        ? "Related Save"
+                        : $"Related Saves ({items.Length})",
+                Owner = this,
+                Width = 470,
+                Height = Math.Min(
+                    520,
+                    145 + (items.Length * 58)),
+                MinWidth = 390,
+                MinHeight = 220,
+                MaxHeight = 650,
+                WindowStartupLocation =
+                    WindowStartupLocation.CenterOwner,
+                ResizeMode = ResizeMode.CanResize,
+                ShowInTaskbar = false,
+                Background =
+                    new SolidColorBrush(
+                        Color.FromRgb(7, 11, 16)),
+                Foreground = Brushes.White
+            };
+
+        var root =
+            new Grid
+            {
+                Margin =
+                    new Thickness(18)
+            };
+
+        root.RowDefinitions.Add(
+            new RowDefinition
+            {
+                Height =
+                    GridLength.Auto
+            });
+        root.RowDefinitions.Add(
+            new RowDefinition
+            {
+                Height =
+                    new GridLength(
+                        1,
+                        GridUnitType.Star)
+            });
+
+        var heading =
+            new StackPanel
+            {
+                Margin =
+                    new Thickness(
+                        0,
+                        0,
+                        0,
+                        12)
+            };
+
+        heading.Children.Add(
+            new TextBlock
+            {
+                Text =
+                    "SAVE RELATIONSHIPS",
+                FontSize = 20,
+                FontWeight =
+                    FontWeights.Bold
+            });
+
+        heading.Children.Add(
+            new TextBlock
+            {
+                Text =
+                    "Select a save to open it in the Save Library.",
+                Foreground =
+                    new SolidColorBrush(
+                        Color.FromRgb(
+                            159,
+                            176,
+                            197)),
+                Margin =
+                    new Thickness(
+                        0,
+                        4,
+                        0,
+                        0)
+            });
+
+        Grid.SetRow(
+            heading,
+            0);
+        root.Children.Add(
+            heading);
+
+        var listPanel =
+            new StackPanel
+            {
+                Orientation =
+                    Orientation.Vertical
+            };
+
+        foreach (var link in items)
+        {
+            var row =
+                new Grid
+                {
+                    Margin =
+                        new Thickness(
+                            0,
+                            0,
+                            0,
+                            7)
+                };
+
+            row.ColumnDefinitions.Add(
+                new ColumnDefinition
+                {
+                    Width =
+                        new GridLength(48)
+                });
+            row.ColumnDefinitions.Add(
+                new ColumnDefinition
+                {
+                    Width =
+                        new GridLength(
+                            1,
+                            GridUnitType.Star)
+                });
+
+            var iconHost =
+                new Border
+                {
+                    Width = 42,
+                    Height = 42,
+                    CornerRadius =
+                        new CornerRadius(5),
+                    Background =
+                        new SolidColorBrush(
+                            Color.FromRgb(
+                                5,
+                                9,
+                                14)),
+                    BorderBrush =
+                        new SolidColorBrush(
+                            Color.FromRgb(
+                                34,
+                                48,
+                                68)),
+                    BorderThickness =
+                        new Thickness(1),
+                    VerticalAlignment =
+                        VerticalAlignment.Center
+                };
+
+            if (link.IconImage is not null)
+            {
+                iconHost.Child =
+                    new Image
+                    {
+                        Source =
+                            link.IconImage,
+                        Width = 36,
+                        Height = 36,
+                        Stretch =
+                            Stretch.Uniform,
+                        HorizontalAlignment =
+                            HorizontalAlignment.Center,
+                        VerticalAlignment =
+                            VerticalAlignment.Center,
+                        SnapsToDevicePixels =
+                            true
+                    };
+            }
+
+            Grid.SetColumn(
+                iconHost,
+                0);
+            row.Children.Add(
+                iconHost);
+
+            var item =
+                new Button
+                {
+                    Content =
+                        link.Label,
+                    Tag =
+                        link.EntryId,
+                    ToolTip =
+                        link.ToolTip,
+                    Height = 46,
+                    Margin =
+                        new Thickness(
+                            6,
+                            0,
+                            0,
+                            0),
+                    Padding =
+                        new Thickness(
+                            12,
+                            0,
+                            12,
+                            0),
+                    HorizontalContentAlignment =
+                        HorizontalAlignment.Left,
+                    VerticalContentAlignment =
+                        VerticalAlignment.Center,
+                    Background =
+                        new SolidColorBrush(
+                            Color.FromRgb(
+                                13,
+                                19,
+                                27)),
+                    Foreground =
+                        Brushes.White,
+                    BorderBrush =
+                        new SolidColorBrush(
+                            Color.FromRgb(
+                                34,
+                                48,
+                                68)),
+                    BorderThickness =
+                        new Thickness(1)
+                };
+
+            item.Click +=
+                (_, _) =>
+                {
+                    var button =
+                        new Button
+                        {
+                            Tag =
+                                link.EntryId
+                        };
+
+                    LibrarySaveRelationship_Click(
+                        button,
+                        new RoutedEventArgs());
+
+                    window.Close();
+                };
+
+            Grid.SetColumn(
+                item,
+                1);
+            row.Children.Add(
+                item);
+
+            listPanel.Children.Add(
+                row);
+        }
+
+        var scrollViewer =
+            new ScrollViewer
+            {
+                Content =
+                    listPanel,
+                VerticalScrollBarVisibility =
+                    ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility =
+                    ScrollBarVisibility.Disabled
+            };
+
+        Grid.SetRow(
+            scrollViewer,
+            1);
+        root.Children.Add(
+            scrollViewer);
+
+        window.Content =
+            root;
+
+        window.Show();
+    }
+
+    private void LibrarySaveRelationship_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (sender is not Button button ||
+            button.Tag is not string entryId)
+        {
+            return;
+        }
+
+        var target =
+            _saveLibraryIndex.Entries.FirstOrDefault(
+                candidate =>
+                    candidate.Id.Equals(
+                        entryId,
+                        StringComparison.OrdinalIgnoreCase));
+
+        if (target is null)
+            return;
+
+        if (!_saveLibraryView.Any(
+                candidate =>
+                    candidate.Id.Equals(
+                        target.Id,
+                        StringComparison.OrdinalIgnoreCase)))
+        {
+            LibrarySearchBox.Text = string.Empty;
+            _libraryPlatformFilter =
+                LibraryPlatformFilter.All;
+            ApplySaveLibraryFilter();
+        }
+
+        SaveLibraryList.SelectedItem =
+            target;
+
+        SaveLibraryList.ScrollIntoView(
+            target);
+
+        SaveLibraryList.Focus();
+    }
+
+    private async Task<string> GetSaveInformationStatusTextAsync(
+        SaveLibraryEntry entry)
+    {
+        try
+        {
+            var selectedFingerprint =
+                await GetSavePayloadFingerprintAsync(entry);
+
+            var matchingCount = 0;
+            var relatedCount = 0;
+
+            foreach (var candidate in _saveLibraryIndex.Entries)
+            {
+                if (candidate.Id.Equals(
+                        entry.Id,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    !AreRelatedSaveIdentities(
+                        entry,
+                        candidate))
+                {
+                    continue;
+                }
+
+                var candidateFingerprint =
+                    await GetSavePayloadFingerprintAsync(candidate);
+
+                if (!string.IsNullOrWhiteSpace(
+                        selectedFingerprint) &&
+                    selectedFingerprint.Equals(
+                        candidateFingerprint,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    matchingCount++;
+                }
+                else
+                {
+                    relatedCount++;
+                }
+            }
+
+            return matchingCount == 0 &&
+                   relatedCount == 0
+                ? "Unique Save • No matching or related saves found."
+                : matchingCount > 0 &&
+                  relatedCount > 0
+                    ? $"Matching Save • {matchingCount} match(es) • Related Saves • {relatedCount}"
+                    : matchingCount > 0
+                        ? $"Matching Save • {matchingCount} match(es)"
+                        : $"Related Saves • {relatedCount}";
+        }
+        catch
+        {
+            return "Save relationship status unavailable.";
+        }
     }
 
     private async Task UpdateSaveLibraryCrc32Async(
@@ -7298,6 +8905,12 @@ await LoadSaveLibraryIconAsync(result.Entry);
 
                 result.Entry.IconImage =
                     save.IconImage;
+                result.Entry.ImportedFrom =
+                    GetLibrarySourceDisplayName(cardPath);
+
+                await _saveLibraryService.SaveAsync(
+                    _saveLibraryIndex);
+
                 added++;
 
                 Log(
@@ -7396,6 +9009,12 @@ await LoadSaveLibraryIconAsync(result.Entry);
             }
 
             result.Entry.IconImage = save.IconImage;
+            result.Entry.ImportedFrom =
+                GetLibrarySourceDisplayName(cardPath);
+
+            await _saveLibraryService.SaveAsync(
+                _saveLibraryIndex);
+
             ApplySaveLibraryFilter();
             SaveLibraryList.SelectedItem = result.Entry;
             SaveLibraryList.ScrollIntoView(result.Entry);
@@ -7867,7 +9486,6 @@ await LoadSaveLibraryIconAsync(result.Entry);
                 "Select a Save Library entry and choose Save Information.";
             SaveInfoDirectory.Text = "—";
             SaveInfoFormat.Text = "—";
-            SaveInfoImportedFrom.Text = "—";
             SaveInfoSize.Text = "—";
             SaveInfoAdded.Text = "—";
             SaveInfoModified.Text = "—";
@@ -7896,14 +9514,7 @@ await LoadSaveLibraryIconAsync(result.Entry);
         SaveInfoDirectory.Text =
             string.IsNullOrWhiteSpace(entry.DirectoryId) ? "—" : entry.DirectoryId;
         SaveInfoFormat.Text =
-            string.IsNullOrWhiteSpace(entry.Platform)
-                ? entry.FormatName
-                : $"{entry.Platform} • {entry.FormatName}";
-
-        SaveInfoImportedFrom.Text =
-            string.IsNullOrWhiteSpace(entry.ImportedFrom)
-                ? "Unknown / existing library entry"
-                : entry.ImportedFrom;
+            GetSaveLibraryFormatDisplay(entry);
 
         SaveInfoSize.Text = entry.SizeDisplay;
         SaveInfoAdded.Text =
@@ -7912,15 +9523,8 @@ await LoadSaveLibraryIconAsync(result.Entry);
             entry.ModifiedUtc.ToLocalTime().ToString("yyyy-MM-dd h:mm tt");
         SaveInfoSha256.Text = entry.Sha256;
 
-        var duplicateCount = _saveLibraryIndex.Entries.Count(candidate =>
-            !ReferenceEquals(candidate, entry) &&
-            candidate.Sha256.Equals(
-                entry.Sha256,
-                StringComparison.OrdinalIgnoreCase));
-
-        SaveInfoDuplicate.Text = duplicateCount == 0
-            ? "No exact duplicates detected."
-            : $"{duplicateCount} exact duplicate(s) detected.";
+        SaveInfoDuplicate.Text =
+            await GetSaveInformationStatusTextAsync(entry);
 
         var serial = ExtractGameSerial(entry.DirectoryId);
         SaveInfoSerial.Text = string.IsNullOrWhiteSpace(serial) ? "Unknown" : serial;
@@ -9036,7 +10640,20 @@ await LoadSaveLibraryIconAsync(result.Entry);
             Title = "Export Save",
             Filter = filter,
             DefaultExt = entry.Extension,
-            FileName = entry.OriginalFileName
+            FileName =
+                entry.Extension.Equals(
+                    ".ps2save",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? Path.GetFileNameWithoutExtension(
+                        entry.OriginalFileName) +
+                      ".ps2save"
+                    : entry.OriginalFileName,
+            FilterIndex =
+                entry.Extension.Equals(
+                    ".ps2save",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? 4
+                    : 1
         };
 
         if (dialog.ShowDialog() != true)
@@ -9093,6 +10710,68 @@ await LoadSaveLibraryIconAsync(result.Entry);
                     await _ps1CardService.CreateSingleSaveCardFromPackageAsync(
                         storedPath,
                         destinationPath);
+                }
+            }
+            else if (!isPs1 &&
+                     destinationExtension == ".ps2save")
+            {
+                var temporaryRoot =
+                    Path.Combine(
+                        Path.GetTempPath(),
+                        "PSM-LIBRARY-PS2SAVE-" +
+                        Guid.NewGuid().ToString("N"));
+
+                Directory.CreateDirectory(
+                    temporaryRoot);
+
+                try
+                {
+                    var sourceCard =
+                        Path.Combine(
+                            temporaryRoot,
+                            "source.ps2");
+
+                    await _engine.CreateCardAsync(
+                        sourceCard,
+                        false);
+
+                    await _engine.ImportAsync(
+                        sourceCard,
+                        storedPath);
+
+                    await _engine.CheckAsync(
+                        sourceCard);
+
+                    var saves =
+                        await _engine.ReadDirectoryAsync(
+                            sourceCard);
+
+                    var save =
+                        saves.FirstOrDefault(
+                            candidate =>
+                                candidate.DirectoryId.Equals(
+                                    entry.DirectoryId,
+                                    StringComparison.OrdinalIgnoreCase))
+                        ?? saves.SingleOrDefault()
+                        ?? throw new InvalidDataException(
+                            "The stored save could not be verified.");
+
+                    await _ps2PackageService.ExportFromCardAsync(
+                        sourceCard,
+                        save,
+                        destinationPath,
+                        entry.OriginalFileName,
+                        entry.FormatName);
+                }
+                finally
+                {
+                    try
+                    {
+                        Directory.Delete(
+                            temporaryRoot,
+                            true);
+                    }
+                    catch { }
                 }
             }
             else if (destinationExtension is ".ps2" or ".mc2" or ".vm2" or ".vmc" or ".bin" or ".mcd")
