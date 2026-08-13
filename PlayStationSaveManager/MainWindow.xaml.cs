@@ -382,6 +382,29 @@ public partial class MainWindow : Window
             "Confirm Transfer", MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (confirm != MessageBoxResult.Yes) return;
 
+        var destinationSaves =
+            await _engine.ReadDirectoryAsync(
+                destination);
+
+        var existingSave =
+            destinationSaves.FirstOrDefault(
+                candidate =>
+                    candidate.DirectoryId.Equals(
+                        save.DirectoryId,
+                        StringComparison.OrdinalIgnoreCase));
+
+        if (existingSave is not null &&
+            ReplaceExisting.IsChecked != true)
+        {
+            MessageBox.Show(
+                $"{save.Title}\n{save.DirectoryId}\n\nalready exists on {Path.GetFileName(destination)}.\n\n" +
+                "Enable \"Replace save if it already exists\" to overwrite it.",
+                "Save Already Exists",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), "PSAM-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
         try
@@ -1685,6 +1708,35 @@ public partial class MainWindow : Window
                 CopyDirectory(destination, temporaryCard);
             else
                 File.Copy(destination, temporaryCard, true);
+
+            var existingDestinationSaves =
+                await _engine.ReadDirectoryAsync(
+                    temporaryCard);
+
+            var conflicts =
+                saves.Where(
+                    selected =>
+                        existingDestinationSaves.Any(
+                            candidate =>
+                                candidate.DirectoryId.Equals(
+                                    selected.DirectoryId,
+                                    StringComparison.OrdinalIgnoreCase)))
+                    .ToArray();
+
+            if (conflicts.Length > 0 &&
+                ReplaceExisting.IsChecked != true)
+            {
+                MessageBox.Show(
+                    conflicts.Length == 1
+                        ? $"{conflicts[0].Title}\n{conflicts[0].DirectoryId}\n\nalready exists on {Path.GetFileName(destination)}.\n\n" +
+                          "Enable \"Replace save if it already exists\" to overwrite it."
+                        : $"{conflicts.Length} selected saves already exist on {Path.GetFileName(destination)}.\n\n" +
+                          "Enable \"Replace save if it already exists\" to overwrite them.",
+                    "Save Already Exists",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
 
             foreach (var save in saves)
             {
@@ -3615,7 +3667,9 @@ public partial class MainWindow : Window
         if (Directory.Exists(path))
         {
             return File.Exists(
-                    Path.Combine(path, "_pcsx2_superblock"))
+                    Path.Combine(
+                        path,
+                        "_pcsx2_superblock"))
                 ? UniversalSourceKind.Ps2Card
                 : UniversalSourceKind.Unsupported;
         }
@@ -3623,22 +3677,39 @@ public partial class MainWindow : Window
         if (!File.Exists(path))
             return UniversalSourceKind.Unsupported;
 
-        var extension = Path.GetExtension(path).ToLowerInvariant();
+        var extension =
+            Path.GetExtension(path)
+                .ToLowerInvariant();
 
+        // PSM's PS1 package belongs in the Import Wizard.
         if (extension == ".ps1save")
             return UniversalSourceKind.Ps1Package;
 
+        // PS2SAVE intentionally remains a Save Library/native archive format
+        // and is not routed through Import Wizard or Universal Converter.
+        if (extension == ".ps2save")
+            return UniversalSourceKind.Unsupported;
+
+        // Individual PS1 save wrappers are verified by the same parser used
+        // by the actual import/conversion operations.
         if (Ps1ExternalSaveService.LooksLikePs1SingleSave(path))
             return UniversalSourceKind.Ps1SingleSave;
 
+        // PS1 card wrappers are content-verified, not extension-only.
         if (Ps1MemoryCardService.LooksLikeSupportedCard(path))
             return UniversalSourceKind.Ps1Card;
 
         if (LooksLikePs2ImageCard(path))
             return UniversalSourceKind.Ps2Card;
 
-        if (extension is ".psu" or ".max" or ".cbs" or
-            ".xps" or ".sps" or ".psv" or ".npo" or ".p2m")
+        if (extension is ".psu" or
+            ".max" or
+            ".cbs" or
+            ".xps" or
+            ".sps" or
+            ".psv" or
+            ".npo" or
+            ".p2m")
         {
             return UniversalSourceKind.Ps2Package;
         }
@@ -8586,6 +8657,31 @@ await LoadSaveLibraryIconAsync(result.Entry);
         if (confirmation != MessageBoxResult.Yes)
             return;
 
+        var destinationCard =
+            await _ps1CardService.ReadAsync(
+                destinationPath);
+
+        var existingSave =
+            destinationCard.Saves.FirstOrDefault(
+                candidate =>
+                    !candidate.IsDeleted &&
+                    candidate.FileName.Equals(
+                        save.FileName,
+                        StringComparison.OrdinalIgnoreCase));
+
+        if (existingSave is not null &&
+            ReplaceExistingPs1.IsChecked != true)
+        {
+            MessageBox.Show(
+                this,
+                $"{save.Title}\n{save.FileName}\n\nalready exists on {Path.GetFileName(destinationPath)}.\n\n" +
+                "Enable \"Replace save if it already exists\" to overwrite it.",
+                "Save Already Exists",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
         try
         {
             SetBusy(true, $"Copying {save.Title}...");
@@ -8621,11 +8717,29 @@ await LoadSaveLibraryIconAsync(result.Entry);
         catch (Exception ex)
         {
             Log("PS1 transfer failed: " + ex.Message);
-            MessageBox.Show(
-                ex.Message,
-                "PS1 Transfer Failed",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+
+            if (ex is InvalidOperationException &&
+                ex.Message.Contains(
+                    "already contains this save",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                MessageBox.Show(
+                    this,
+                    $"{save.Title}\n{save.FileName}\n\nalready exists on {Path.GetFileName(destinationPath)}.\n\n" +
+                    "Enable \"Replace save if it already exists\" to overwrite it.",
+                    "Save Already Exists",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            else
+            {
+                MessageBox.Show(
+                    this,
+                    ex.Message,
+                    "PS1 Transfer Failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
         }
         finally
         {
@@ -9145,36 +9259,306 @@ await LoadSaveLibraryIconAsync(result.Entry);
         }
     }
 
-    private void Ps1Cards_DragOver(
+    private static string? GetFirstDroppedPath(
+        DragEventArgs e)
+    {
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] paths ||
+            paths.Length == 0)
+        {
+            return null;
+        }
+
+        return paths[0];
+    }
+
+    private void Ps1CardSlot_DragOver(
         object sender,
         DragEventArgs e)
     {
+        var path =
+            GetFirstDroppedPath(e);
+
         e.Effects =
-            e.Data.GetDataPresent(DataFormats.FileDrop)
+            path is not null
                 ? DragDropEffects.Copy
                 : DragDropEffects.None;
+
         e.Handled = true;
     }
 
-    private async void Ps1Cards_Drop(
+    private async void Ps1CardA_Drop(
         object sender,
         DragEventArgs e)
     {
-        if (e.Data.GetData(DataFormats.FileDrop) is not string[] files)
+        var path =
+            GetFirstDroppedPath(e);
+
+        if (path is null)
             return;
 
-        foreach (var path in files.Take(2))
-        {
-            if (!Ps1MemoryCardService.LooksLikeSupportedCard(path))
-                continue;
+        e.Handled = true;
 
-            if (_ps1PathA is null)
-                await LoadPs1CardAsync(path, 'A');
-            else
-                await LoadPs1CardAsync(path, 'B');
+        var kind =
+            DetectUniversalSourceKind(path);
+
+        if (kind == UniversalSourceKind.Ps1Card)
+        {
+            PreloadImportWizardSource(path);
+
+            await LoadPs1CardAsync(
+                path,
+                'A');
+            return;
         }
 
+        if (kind is UniversalSourceKind.Ps1SingleSave or
+            UniversalSourceKind.Ps1Package)
+        {
+            PreloadImportWizardSource(path);
+
+            if (_ps1PathA is null)
+            {
+                MainTabs.SelectedItem =
+                    UniversalImportWizardTab;
+                return;
+            }
+
+            var answer =
+                ShowOwnedDropConfirmation(
+                    $"You're trying to import {Path.GetFileName(path)} into PS1 Card A.\n\n" +
+                    "Do you want to proceed?",
+                    "Import Save to Card A");
+
+            if (answer != MessageBoxResult.Yes)
+                return;
+
+            if (kind == UniversalSourceKind.Ps1Package)
+            {
+                await ImportWizardPs1PackageAsync(
+                    path,
+                    'A');
+            }
+            else
+            {
+                await ImportWizardPs1SingleSaveAsync(
+                    path,
+                    'A');
+            }
+
+            return;
+        }
+
+        RouteDropToImportWizard(path);
+    }
+
+    private async void Ps1CardB_Drop(
+        object sender,
+        DragEventArgs e)
+    {
+        var path =
+            GetFirstDroppedPath(e);
+
+        if (path is null)
+            return;
+
         e.Handled = true;
+
+        var kind =
+            DetectUniversalSourceKind(path);
+
+        if (kind == UniversalSourceKind.Ps1Card)
+        {
+            PreloadImportWizardSource(path);
+
+            await LoadPs1CardAsync(
+                path,
+                'B');
+            return;
+        }
+
+        if (kind is UniversalSourceKind.Ps1SingleSave or
+            UniversalSourceKind.Ps1Package)
+        {
+            PreloadImportWizardSource(path);
+
+            if (_ps1PathB is null)
+            {
+                MainTabs.SelectedItem =
+                    UniversalImportWizardTab;
+                return;
+            }
+
+            var answer =
+                ShowOwnedDropConfirmation(
+                    $"You're trying to import {Path.GetFileName(path)} into PS1 Card B.\n\n" +
+                    "Do you want to proceed?",
+                    "Import Save to Card B");
+
+            if (answer != MessageBoxResult.Yes)
+                return;
+
+            if (kind == UniversalSourceKind.Ps1Package)
+            {
+                await ImportWizardPs1PackageAsync(
+                    path,
+                    'B');
+            }
+            else
+            {
+                await ImportWizardPs1SingleSaveAsync(
+                    path,
+                    'B');
+            }
+
+            return;
+        }
+
+        RouteDropToImportWizard(path);
+    }
+
+    private static bool LooksLikeDirectPs2CardDrop(
+        string path)
+    {
+        if (Directory.Exists(path))
+        {
+            return File.Exists(
+                Path.Combine(
+                    path,
+                    "_pcsx2_superblock"));
+        }
+
+        return LooksLikePs2ImageCard(path);
+    }
+
+    private void Ps2CardSlot_DragOver(
+        object sender,
+        DragEventArgs e)
+    {
+        var path =
+            GetFirstDroppedPath(e);
+
+        e.Effects =
+            path is not null
+                ? DragDropEffects.Copy
+                : DragDropEffects.None;
+
+        e.Handled = true;
+    }
+
+    private async void Ps2CardA_Drop(
+        object sender,
+        DragEventArgs e)
+    {
+        var path =
+            GetFirstDroppedPath(e);
+
+        if (path is null)
+            return;
+
+        e.Handled = true;
+
+        var kind =
+            DetectUniversalSourceKind(path);
+
+        if (kind == UniversalSourceKind.Ps2Card)
+        {
+            PreloadImportWizardSource(path);
+
+            await LoadCardAsync(
+                path,
+                'A');
+            return;
+        }
+
+        if (kind == UniversalSourceKind.Ps2Package)
+        {
+            PreloadImportWizardSource(path);
+
+            if (_pathA is null)
+            {
+                MainTabs.SelectedItem =
+                    UniversalImportWizardTab;
+                return;
+            }
+
+            var answer =
+                ShowOwnedDropConfirmation(
+                    $"You're trying to import {Path.GetFileName(path)} into PS2 Card A.\n\n" +
+                    "Do you want to proceed?",
+                    "Import Save to Card A");
+
+            if (answer != MessageBoxResult.Yes)
+                return;
+
+            SelectPackage(path);
+
+            await ImportPackageAsync(
+                _pathA,
+                'A',
+                askForConfirmation: false);
+
+            return;
+        }
+
+        RouteDropToImportWizard(path);
+    }
+
+    private async void Ps2CardB_Drop(
+        object sender,
+        DragEventArgs e)
+    {
+        var path =
+            GetFirstDroppedPath(e);
+
+        if (path is null)
+            return;
+
+        e.Handled = true;
+
+        var kind =
+            DetectUniversalSourceKind(path);
+
+        if (kind == UniversalSourceKind.Ps2Card)
+        {
+            PreloadImportWizardSource(path);
+
+            await LoadCardAsync(
+                path,
+                'B');
+            return;
+        }
+
+        if (kind == UniversalSourceKind.Ps2Package)
+        {
+            PreloadImportWizardSource(path);
+
+            if (_pathB is null)
+            {
+                MainTabs.SelectedItem =
+                    UniversalImportWizardTab;
+                return;
+            }
+
+            var answer =
+                ShowOwnedDropConfirmation(
+                    $"You're trying to import {Path.GetFileName(path)} into PS2 Card B.\n\n" +
+                    "Do you want to proceed?",
+                    "Import Save to Card B");
+
+            if (answer != MessageBoxResult.Yes)
+                return;
+
+            SelectPackage(path);
+
+            await ImportPackageAsync(
+                _pathB,
+                'B',
+                askForConfirmation: false);
+
+            return;
+        }
+
+        RouteDropToImportWizard(path);
     }
 
     private async Task LoadPs1GameMetadataDatabaseAsync()
@@ -10994,6 +11378,40 @@ await LoadSaveLibraryIconAsync(result.Entry);
             SelectImportWizardSource(dialog.FileName);
     }
 
+    private void PreloadImportWizardSource(
+        string path)
+    {
+        SelectImportWizardSource(path);
+    }
+
+    private MessageBoxResult ShowOwnedDropConfirmation(
+        string message,
+        string title)
+    {
+        if (WindowState == WindowState.Minimized)
+            WindowState = WindowState.Normal;
+
+        Activate();
+        Topmost = true;
+        Topmost = false;
+        Focus();
+
+        return MessageBox.Show(
+            this,
+            message,
+            title,
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+    }
+
+    private void RouteDropToImportWizard(
+        string path)
+    {
+        PreloadImportWizardSource(path);
+        MainTabs.SelectedItem =
+            UniversalImportWizardTab;
+    }
+
     private void ImportWizard_DragOver(object sender, DragEventArgs e)
     {
         e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop)
@@ -11004,8 +11422,12 @@ await LoadSaveLibraryIconAsync(result.Entry);
 
     private void ImportWizard_Drop(object sender, DragEventArgs e)
     {
-        if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] files &&
+            files.Length > 0)
+        {
             SelectImportWizardSource(files[0]);
+        }
+
         e.Handled = true;
     }
 
@@ -11669,14 +12091,113 @@ await LoadSaveLibraryIconAsync(result.Entry);
         return $"{bytes:N0} bytes";
     }
 
-    private async Task ImportPackageAsync(string destination, char destinationSide)
+    private async Task<SaveEntry> InspectPs2PackageForImportAsync(
+        string packagePath,
+        CancellationToken cancellationToken = default)
+    {
+        var temporaryRoot =
+            Path.Combine(
+                Path.GetTempPath(),
+                "PSM-PS2-IMPORT-INSPECT-" +
+                Guid.NewGuid().ToString("N"));
+
+        Directory.CreateDirectory(
+            temporaryRoot);
+
+        try
+        {
+            var cardPath =
+                Path.Combine(
+                    temporaryRoot,
+                    "inspect.ps2");
+
+            await _engine.CreateCardAsync(
+                cardPath,
+                cancellationToken);
+
+            await _engine.ImportAsync(
+                cardPath,
+                packagePath,
+                cancellationToken);
+
+            await _engine.CheckAsync(
+                cardPath,
+                cancellationToken);
+
+            var saves =
+                await _engine.ReadDirectoryAsync(
+                    cardPath,
+                    cancellationToken);
+
+            if (saves.Count != 1)
+            {
+                throw new InvalidDataException(
+                    $"The package contains {saves.Count} saves; exactly one was expected.");
+            }
+
+            return saves[0];
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(
+                    temporaryRoot,
+                    true);
+            }
+            catch { }
+        }
+    }
+
+    private async Task ImportPackageAsync(
+        string destination,
+        char destinationSide,
+        bool askForConfirmation = true)
     {
         if (_selectedPackagePath is null) return;
-        var packageName = Path.GetFileName(_selectedPackagePath);
-        var confirm = MessageBox.Show(
-            $"Import {packageName}\n\ninto {Path.GetFileName(destination)}?",
-            "Confirm Import", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (confirm != MessageBoxResult.Yes) return;
+        var packageName =
+            Path.GetFileName(
+                _selectedPackagePath);
+
+        if (askForConfirmation)
+        {
+            var confirm =
+                MessageBox.Show(
+                    $"Import {packageName}\n\ninto {Path.GetFileName(destination)}?",
+                    "Confirm Import",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question);
+
+            if (confirm != MessageBoxResult.Yes)
+                return;
+        }
+
+        var incomingSave =
+            await InspectPs2PackageForImportAsync(
+                _selectedPackagePath);
+
+        var destinationSaves =
+            await _engine.ReadDirectoryAsync(
+                destination);
+
+        var existing =
+            destinationSaves.FirstOrDefault(
+                save =>
+                    save.DirectoryId.Equals(
+                        incomingSave.DirectoryId,
+                        StringComparison.OrdinalIgnoreCase));
+
+        if (existing is not null &&
+            ReplaceExisting.IsChecked != true)
+        {
+            MessageBox.Show(
+                $"{incomingSave.Title}\n{incomingSave.DirectoryId}\n\nalready exists on {Path.GetFileName(destination)}.\n\n" +
+                "Enable \"Replace save if it already exists\" to overwrite it.",
+                "Save Already Exists",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
 
         var temporaryDirectory = Path.Combine(Path.GetTempPath(), "PSAM-Import-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
@@ -11688,15 +12209,35 @@ await LoadSaveLibraryIconAsync(result.Entry);
             var temporaryCard = Path.Combine(temporaryDirectory, Path.GetFileName(destination));
             File.Copy(destination, temporaryCard, true);
 
+            if (existing is not null &&
+                ReplaceExisting.IsChecked == true)
+            {
+                Log(
+                    $"Removing existing destination save before package import: {incomingSave.DirectoryId}");
+
+                await _engine.DeleteAsync(
+                    temporaryCard,
+                    incomingSave.DirectoryId);
+            }
+
             Log($"Importing package into temporary destination: {_selectedPackagePath}");
             await _engine.ImportAsync(temporaryCard, _selectedPackagePath);
             Log("Verifying temporary destination card.");
             await _engine.CheckAsync(temporaryCard);
             var after = await _engine.ReadDirectoryAsync(temporaryCard);
 
-            var imported = after.FirstOrDefault(candidate => !before.Any(old => old.DirectoryId.Equals(candidate.DirectoryId, StringComparison.OrdinalIgnoreCase)));
-            if (imported is null && after.Count > 0)
-                imported = after.OrderByDescending(save => save.SizeBytes).FirstOrDefault();
+            var imported =
+                after.FirstOrDefault(
+                    candidate =>
+                        candidate.DirectoryId.Equals(
+                            incomingSave.DirectoryId,
+                            StringComparison.OrdinalIgnoreCase));
+
+            if (imported is null)
+            {
+                throw new InvalidDataException(
+                    "The imported PS2 save was not present after verification.");
+            }
 
             var backup = CreateAutomaticBackup(destination);
             File.Copy(temporaryCard, destination, true);
@@ -11761,11 +12302,15 @@ await LoadSaveLibraryIconAsync(result.Entry);
     private void Window_DragOver(object sender, DragEventArgs e) { e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true; }
     private void Window_Drop(object sender, DragEventArgs e)
     {
-        if (e.Data.GetData(DataFormats.FileDrop) is not string[] files || files.Length == 0)
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] files ||
+            files.Length == 0)
+        {
             return;
+        }
 
-        SelectImportWizardSource(files[0]);
-        MainTabs.SelectedItem = UniversalImportWizardTab;
+        RouteDropToImportWizard(
+            files[0]);
+
         e.Handled = true;
     }
 

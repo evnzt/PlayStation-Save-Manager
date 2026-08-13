@@ -894,7 +894,13 @@
                             VerticalAlignment="Top"/>
 
                     <!-- CARD A -->
-                    <Border Grid.Column="0" Style="{StaticResource CardPanel}" Margin="0,0,8,0">
+                    <Border x:Name="Ps2CardADropTarget"
+                            Grid.Column="0"
+                            Style="{StaticResource CardPanel}"
+                            Margin="0,0,8,0"
+                            AllowDrop="True"
+                            DragOver="Ps2CardSlot_DragOver"
+                            Drop="Ps2CardA_Drop">
                         <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="145"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                             <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                 <StackPanel><TextBlock Text="PS2 CARD A" FontSize="23" FontWeight="Bold"/><TextBlock x:Name="CardAInfo" Text="Open or drop a PS2 memory card" Foreground="#55A9FF" TextWrapping="Wrap" Margin="0,3,0,0"/></StackPanel>
@@ -1169,7 +1175,13 @@
                     </StackPanel>
 
                     <!-- CARD B -->
-                    <Border Grid.Column="2" Style="{StaticResource CardPanel}" Margin="8,0,0,0">
+                    <Border x:Name="Ps2CardBDropTarget"
+                            Grid.Column="2"
+                            Style="{StaticResource CardPanel}"
+                            Margin="8,0,0,0"
+                            AllowDrop="True"
+                            DragOver="Ps2CardSlot_DragOver"
+                            Drop="Ps2CardB_Drop">
                         <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="145"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                             <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                 <StackPanel><TextBlock Text="PS2 CARD B" FontSize="23" FontWeight="Bold"/><TextBlock x:Name="CardBInfo" Text="Open or drop a second PS2 memory card" Foreground="#55A9FF" TextWrapping="Wrap" Margin="0,3,0,0"/></StackPanel>
@@ -1366,10 +1378,7 @@
 
                 <Grid x:Name="Ps1MemoryCardsSurface"
                       Margin="10"
-                      Background="Transparent"
-                      AllowDrop="True"
-                      DragOver="Ps1Cards_DragOver"
-                      Drop="Ps1Cards_Drop">
+                      Background="Transparent">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition/>
                         <ColumnDefinition Width="255"/>
@@ -1385,9 +1394,13 @@
                             HorizontalAlignment="Left"
                             VerticalAlignment="Top"/>
 
-                    <Border Grid.Column="0"
+                    <Border x:Name="Ps1CardADropTarget"
+                            Grid.Column="0"
                             Style="{StaticResource CardPanel}"
-                            Margin="0,0,8,0">
+                            Margin="0,0,8,0"
+                            AllowDrop="True"
+                            DragOver="Ps1CardSlot_DragOver"
+                            Drop="Ps1CardA_Drop">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -1693,9 +1706,13 @@
                         </Border>
                     </StackPanel>
 
-                    <Border Grid.Column="2"
+                    <Border x:Name="Ps1CardBDropTarget"
+                            Grid.Column="2"
                             Style="{StaticResource CardPanel}"
-                            Margin="8,0,0,0">
+                            Margin="8,0,0,0"
+                            AllowDrop="True"
+                            DragOver="Ps1CardSlot_DragOver"
+                            Drop="Ps1CardB_Drop">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
