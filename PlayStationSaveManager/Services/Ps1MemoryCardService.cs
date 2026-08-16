@@ -367,6 +367,51 @@ public sealed class Ps1MemoryCardService
         return manifest;
     }
 
+    public static IReadOnlyList<BitmapSource>
+        LoadPackageIconFrames(
+            string packagePath)
+    {
+        try
+        {
+            using var stream =
+                File.OpenRead(packagePath);
+
+            using var archive =
+                new ZipArchive(
+                    stream,
+                    ZipArchiveMode.Read);
+
+            var blocksEntry =
+                archive.GetEntry(
+                    "save-blocks.bin");
+
+            if (blocksEntry is null)
+                return Array.Empty<BitmapSource>();
+
+            using var blocksStream =
+                blocksEntry.Open();
+
+            using var memory =
+                new MemoryStream();
+
+            blocksStream.CopyTo(memory);
+
+            var blocks =
+                memory.ToArray();
+
+            if (blocks.Length < BlockSize)
+                return Array.Empty<BitmapSource>();
+
+            return RenderIconFrames(
+                blocks,
+                0);
+        }
+        catch
+        {
+            return Array.Empty<BitmapSource>();
+        }
+    }
+
     public static BitmapSource? LoadPackageIcon(
         string packagePath)
     {
@@ -997,6 +1042,11 @@ public sealed class Ps1MemoryCardService
             if (string.IsNullOrWhiteSpace(gameTitle))
                 gameTitle = fileName;
 
+            var iconFrames =
+                RenderIconFrames(
+                    card,
+                    dataOffset);
+
             entries.Add(new Ps1SaveEntry
             {
                 Title = CleanGameTitle(gameTitle),
@@ -1010,7 +1060,8 @@ public sealed class Ps1MemoryCardService
                 FileName = fileName,
                 IsDeleted = deleted,
                 BlockChain = chain,
-                IconImage = RenderIcon(card, dataOffset)
+                IconFrames = iconFrames,
+                IconImage = iconFrames.FirstOrDefault()
             });
         }
 
@@ -1043,7 +1094,7 @@ public sealed class Ps1MemoryCardService
         return result;
     }
 
-    private static BitmapSource? RenderIcon(
+    private static IReadOnlyList<BitmapSource> RenderIconFrames(
         byte[] card,
         int dataOffset)
     {
@@ -1052,12 +1103,23 @@ public sealed class Ps1MemoryCardService
             card[dataOffset] != 0x53 ||
             card[dataOffset + 1] != 0x43)
         {
-            return null;
+            return Array.Empty<BitmapSource>();
         }
 
-        var frameCount = card[dataOffset + 2] & 0x03;
+        var iconDisplayFlag =
+            card[dataOffset + 2];
+
+        var frameCount =
+            iconDisplayFlag switch
+            {
+                0x11 => 1,
+                0x12 => 2,
+                0x13 => 3,
+                _ => 0
+            };
+
         if (frameCount == 0)
-            frameCount = 1;
+            return Array.Empty<BitmapSource>();
 
         var palette = new uint[16];
         for (var index = 0; index < 16; index++)
@@ -1075,40 +1137,60 @@ public sealed class Ps1MemoryCardService
                 (uint)(alpha << 24 | red << 16 | green << 8 | blue);
         }
 
-        var pixels = new byte[16 * 16 * 4];
-        var iconOffset = dataOffset + 0x80;
+        var frames = new List<BitmapSource>(frameCount);
 
-        if (iconOffset + 128 > card.Length)
-            return null;
-
-        for (var pixel = 0; pixel < 256; pixel++)
+        for (var frameIndex = 0;
+             frameIndex < frameCount;
+             frameIndex++)
         {
-            var packed = card[iconOffset + pixel / 2];
-            var paletteIndex = pixel % 2 == 0
-                ? packed & 0x0F
-                : packed >> 4;
+            var iconOffset =
+                dataOffset +
+                0x80 +
+                frameIndex * 128;
 
-            var color = palette[paletteIndex];
-            var output = pixel * 4;
+            if (iconOffset + 128 > card.Length)
+                break;
 
-            pixels[output] = (byte)(color & 0xFF);
-            pixels[output + 1] = (byte)((color >> 8) & 0xFF);
-            pixels[output + 2] = (byte)((color >> 16) & 0xFF);
-            pixels[output + 3] = (byte)((color >> 24) & 0xFF);
+            var pixels = new byte[16 * 16 * 4];
+
+            for (var pixel = 0; pixel < 256; pixel++)
+            {
+                var packed =
+                    card[iconOffset + pixel / 2];
+
+                var paletteIndex =
+                    pixel % 2 == 0
+                        ? packed & 0x0F
+                        : packed >> 4;
+
+                var color = palette[paletteIndex];
+                var output = pixel * 4;
+
+                pixels[output] =
+                    (byte)(color & 0xFF);
+                pixels[output + 1] =
+                    (byte)((color >> 8) & 0xFF);
+                pixels[output + 2] =
+                    (byte)((color >> 16) & 0xFF);
+                pixels[output + 3] =
+                    (byte)((color >> 24) & 0xFF);
+            }
+
+            var bitmap = BitmapSource.Create(
+                16,
+                16,
+                96,
+                96,
+                PixelFormats.Bgra32,
+                null,
+                pixels,
+                16 * 4);
+
+            bitmap.Freeze();
+            frames.Add(bitmap);
         }
 
-        var bitmap = BitmapSource.Create(
-            16,
-            16,
-            96,
-            96,
-            PixelFormats.Bgra32,
-            null,
-            pixels,
-            16 * 4);
-
-        bitmap.Freeze();
-        return bitmap;
+        return frames;
     }
 
     private static IEnumerable<(int Block, byte[] Frame)>

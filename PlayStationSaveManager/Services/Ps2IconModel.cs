@@ -29,6 +29,206 @@ public sealed class Ps2IconModel
     internal bool? V2UseTextureMask { get; set; }
     internal object V2DecisionSync { get; } = new();
 
+    private double[]? _nativeRigidYRotationAngles;
+    private bool _nativeRigidYRotationAnalyzed;
+
+    /// <summary>
+    /// Detects the narrow PS2 icon-animation case where every stored shape
+    /// is the same mesh rigidly rotated around the vertical (Y) axis.
+    /// The returned angles are relative to shape 0. Morphs, bounces and
+    /// other deformations are rejected.
+    /// </summary>
+    internal bool TryGetNativeRigidYRotationAngles(
+        out IReadOnlyList<double> angles)
+    {
+        if (!_nativeRigidYRotationAnalyzed)
+        {
+            _nativeRigidYRotationAnalyzed = true;
+            _nativeRigidYRotationAngles =
+                AnalyzeNativeRigidYRotationAngles();
+        }
+
+        if (_nativeRigidYRotationAngles is not null)
+        {
+            angles = _nativeRigidYRotationAngles;
+            return true;
+        }
+
+        angles = Array.Empty<double>();
+        return false;
+    }
+
+    private double[]? AnalyzeNativeRigidYRotationAngles()
+    {
+        if (Shapes.Length < 3 || VertexCount < 3)
+            return null;
+
+        // Preserve v10.32's protection for malformed/degenerate animation
+        // tables (Sled Storm is the known regression case). Those files may
+        // contain shapes that look like a rigid rotation geometrically, but
+        // their authored timeline does not describe a normal spinning
+        // animation. Never route them through the rigid-spin renderer and
+        // never disable PSM's normal showcase rotation for them.
+        var timelineKeys = Frames
+            .SelectMany(frame => frame.Keys)
+            .Where(key =>
+                float.IsFinite(key.Time) &&
+                float.IsFinite(key.Value))
+            .ToArray();
+
+        if (timelineKeys.Length > 0)
+        {
+            var firstTime = timelineKeys[0].Time;
+            var oneInstant = timelineKeys.All(
+                key => Math.Abs(key.Time - firstTime) < 0.0001f);
+            if (oneInstant)
+                return null;
+
+            var minimumKeyTime = timelineKeys.Min(key => key.Time);
+            var maximumKeyTime = timelineKeys.Max(key => key.Time);
+            var declaredLength = Math.Max(1.0, FrameLength);
+            if (maximumKeyTime - minimumKeyTime > declaredLength * 1.5)
+                return null;
+        }
+
+        // Require the animation table to actually reference several shapes.
+        var usedShapeIds = Frames
+            .Where(frame =>
+                frame.ShapeId >= 0 &&
+                frame.ShapeId < Shapes.Length)
+            .Select(frame => frame.ShapeId)
+            .Distinct()
+            .OrderBy(id => id)
+            .ToArray();
+
+        if (usedShapeIds.Length < 3)
+            return null;
+
+        var reference = Shapes[0];
+        var center0 = ShapeCenter(reference);
+        double scaleSquared = 0.0;
+
+        for (var vertex = 0; vertex < VertexCount; vertex++)
+        {
+            var p = vertex * 3;
+            var x = reference[p] - center0.X;
+            var y = reference[p + 1] - center0.Y;
+            var z = reference[p + 2] - center0.Z;
+            scaleSquared += x * x + y * y + z * z;
+        }
+
+        if (scaleSquared <= 1.0)
+            return null;
+
+        var result = new double[Shapes.Length];
+        result[0] = 0.0;
+
+        for (var shapeId = 1; shapeId < Shapes.Length; shapeId++)
+        {
+            var shape = Shapes[shapeId];
+            var center = ShapeCenter(shape);
+            double a = 0.0;
+            double b = 0.0;
+
+            for (var vertex = 0; vertex < VertexCount; vertex++)
+            {
+                var p = vertex * 3;
+                var x0 = reference[p] - center0.X;
+                var z0 = reference[p + 2] - center0.Z;
+                var x1 = shape[p] - center.X;
+                var z1 = shape[p + 2] - center.Z;
+
+                a += x0 * x1 + z0 * z1;
+                b += z0 * x1 - x0 * z1;
+            }
+
+            var angle = Math.Atan2(b, a);
+            var cos = Math.Cos(angle);
+            var sin = Math.Sin(angle);
+            double residualSquared = 0.0;
+
+            for (var vertex = 0; vertex < VertexCount; vertex++)
+            {
+                var p = vertex * 3;
+                var x0 = reference[p] - center0.X;
+                var y0 = reference[p + 1] - center0.Y;
+                var z0 = reference[p + 2] - center0.Z;
+
+                var expectedX = x0 * cos + z0 * sin;
+                var expectedZ = -x0 * sin + z0 * cos;
+
+                var x1 = shape[p] - center.X;
+                var y1 = shape[p + 1] - center.Y;
+                var z1 = shape[p + 2] - center.Z;
+
+                var dx = x1 - expectedX;
+                var dy = y1 - y0;
+                var dz = z1 - expectedZ;
+                residualSquared += dx * dx + dy * dy + dz * dz;
+            }
+
+            // Rigid rotations in real ICNs are extremely close even after
+            // 16-bit coordinate quantization. Keep this deliberately strict
+            // so ordinary morphing icons never lose the showcase turntable.
+            var normalizedResidual =
+                Math.Sqrt(residualSquared / scaleSquared);
+            if (!double.IsFinite(normalizedResidual) ||
+                normalizedResidual > 0.01)
+            {
+                return null;
+            }
+
+            result[shapeId] = angle;
+        }
+
+        // Unwrap the sequence so adjacent shapes follow one continuous turn.
+        for (var index = 1; index < result.Length; index++)
+        {
+            while (result[index] - result[index - 1] > Math.PI)
+                result[index] -= Math.PI * 2.0;
+            while (result[index] - result[index - 1] < -Math.PI)
+                result[index] += Math.PI * 2.0;
+        }
+
+        var span = result.Max() - result.Min();
+        if (span < Math.PI / 4.0)
+            return null;
+
+        // Reject sequences that change rotational direction repeatedly.
+        var direction = 0;
+        for (var index = 1; index < result.Length; index++)
+        {
+            var delta = result[index] - result[index - 1];
+            if (Math.Abs(delta) < 0.01)
+                continue;
+
+            var currentDirection = Math.Sign(delta);
+            if (direction == 0)
+                direction = currentDirection;
+            else if (currentDirection != direction)
+                return null;
+        }
+
+        return direction == 0 ? null : result;
+    }
+
+    private (double X, double Y, double Z) ShapeCenter(short[] shape)
+    {
+        double x = 0.0, y = 0.0, z = 0.0;
+        for (var vertex = 0; vertex < VertexCount; vertex++)
+        {
+            var p = vertex * 3;
+            x += shape[p];
+            y += shape[p + 1];
+            z += shape[p + 2];
+        }
+
+        return (
+            x / VertexCount,
+            y / VertexCount,
+            z / VertexCount);
+    }
+
     public static Ps2IconModel Parse(byte[] data)
     {
         using var stream = new MemoryStream(data, false);

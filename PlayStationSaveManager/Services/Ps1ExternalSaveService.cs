@@ -26,7 +26,7 @@ public static class Ps1ExternalSaveService
     private static readonly HashSet<string> SupportedExtensions =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ".mcb", ".mcs", ".mcx", ".pda", ".ps1", ".psv", ".psx", ".raw"
+            ".gme", ".mcb", ".mcs", ".mcx", ".pda", ".ps1", ".psv", ".psx", ".raw"
         };
 
     public static string FileDialogFilter =>
@@ -84,6 +84,14 @@ public static class Ps1ExternalSaveService
                 "The PSV file is not a PlayStation 1 save.");
         }
 
+        if (Path.GetExtension(path).Equals(
+                ".gme",
+                StringComparison.OrdinalIgnoreCase) &&
+            LooksLikeDexDriveSingleSave(bytes))
+        {
+            return ReadDexDriveSingleSave(path, bytes);
+        }
+
         if (LooksLikeMcs(bytes))
             return ReadMcs(path, bytes);
 
@@ -134,12 +142,13 @@ public static class Ps1ExternalSaveService
 
         return extension switch
         {
+            ".gme" => EncodeDexDriveSingleSave(save),
             ".mcs" or ".ps1" => EncodeMcs(save),
             ".mcb" or ".mcx" or ".pda" or ".psx" => EncodeActionReplay(save),
             ".raw" => save.Data.ToArray(),
             ".psv" => EncodePsv(save),
             _ => throw new NotSupportedException(
-                "PS1 individual saves can be written as MCS, PS1, MCB, MCX, PDA, PSX, RAW, or PSV.")
+                "PS1 individual saves can be written as GME, MCS, PS1, MCB, MCX, PDA, PSX, RAW, or PSV.")
         };
     }
 
@@ -184,6 +193,183 @@ public static class Ps1ExternalSaveService
         }
 
         return card;
+    }
+
+    private static byte[] EncodeDexDriveSingleSave(
+        Ps1ExternalSaveData save)
+    {
+        ValidateSave(save);
+
+        const int dexDriveHeaderSize = 0xF40;
+        var rawCard = CreateSingleSaveRawCard(save);
+        var payloadLength =
+            (save.BlocksUsed + 1) *
+            Ps1MemoryCardService.BlockSize;
+
+        var header = new byte[dexDriveHeaderSize];
+        Encoding.ASCII.GetBytes("123-456-STD").CopyTo(header, 0);
+        header[18] = 0x01;
+        header[20] = 0x01;
+        header[21] = 0x4D;
+
+        for (var slot = 0; slot < DirectoryEntries; slot++)
+        {
+            var directoryOffset =
+                DirectoryOffset +
+                slot * FrameSize;
+
+            header[22 + slot] =
+                rawCard[directoryOffset];
+
+            header[38 + slot] =
+                rawCard[directoryOffset + 8];
+        }
+
+        var encoded =
+            new byte[dexDriveHeaderSize + payloadLength];
+
+        Buffer.BlockCopy(
+            header,
+            0,
+            encoded,
+            0,
+            header.Length);
+
+        Buffer.BlockCopy(
+            rawCard,
+            0,
+            encoded,
+            dexDriveHeaderSize,
+            payloadLength);
+
+        return encoded;
+    }
+
+    private static bool LooksLikeDexDriveSingleSave(byte[] bytes)
+    {
+        const int dexDriveHeaderSize = 0xF40;
+        var payloadLength = bytes.Length - dexDriveHeaderSize;
+
+        // Full DexDrive cards are handled by Ps1MemoryCardService. Some
+        // DexDrive-era save archives use the same 0xF40 GME wrapper but store
+        // only block 0 plus the blocks occupied by one save. Recognize only
+        // that truncated, single-save form here so whole-card GME detection
+        // remains unchanged.
+        if (payloadLength < Ps1MemoryCardService.BlockSize * 2 ||
+            payloadLength >= Ps1MemoryCardService.CardSize ||
+            payloadLength % Ps1MemoryCardService.BlockSize != 0)
+        {
+            return false;
+        }
+
+        if (bytes[dexDriveHeaderSize] != 0x4D ||
+            bytes[dexDriveHeaderSize + 1] != 0x43)
+        {
+            return false;
+        }
+
+        var activeStarts = 0;
+        for (var index = 0; index < 15; index++)
+        {
+            var offset =
+                dexDriveHeaderSize +
+                128 +
+                index * 128;
+
+            if (offset >= bytes.Length)
+                return false;
+
+            if (bytes[offset] == 0x51)
+                activeStarts++;
+        }
+
+        return activeStarts == 1;
+    }
+
+    private static Ps1ExternalSaveData ReadDexDriveSingleSave(
+        string path,
+        byte[] bytes)
+    {
+        const int dexDriveHeaderSize = 0xF40;
+        const int directoryOffset = 128;
+        const int directoryEntries = 15;
+
+        if (!LooksLikeDexDriveSingleSave(bytes))
+            throw new InvalidDataException(
+                "The GME file is not a recognized DexDrive individual save.");
+
+        var payloadLength = bytes.Length - dexDriveHeaderSize;
+        var payloadBlocks = payloadLength / Ps1MemoryCardService.BlockSize;
+        var card = new byte[Ps1MemoryCardService.CardSize];
+        Buffer.BlockCopy(
+            bytes,
+            dexDriveHeaderSize,
+            card,
+            0,
+            payloadLength);
+
+        var startingBlock = 0;
+        for (var index = 0; index < directoryEntries; index++)
+        {
+            var offset = directoryOffset + index * 128;
+            if (card[offset] == 0x51)
+            {
+                startingBlock = index + 1;
+                break;
+            }
+        }
+
+        if (startingBlock == 0)
+            throw new InvalidDataException(
+                "The DexDrive GME does not contain an active PS1 save.");
+
+        var chain = new List<int>();
+        var visited = new HashSet<int>();
+        var current = startingBlock;
+
+        while (current is >= 1 and <= directoryEntries &&
+               visited.Add(current))
+        {
+            if (current >= payloadBlocks)
+                throw new InvalidDataException(
+                    "The DexDrive GME save references a block that is not present in the file.");
+
+            chain.Add(current);
+            var offset = directoryOffset + (current - 1) * 128;
+            var next = BitConverter.ToUInt16(card, offset + 0x08);
+            if (next == 0xFFFF)
+                break;
+
+            current = next + 1;
+        }
+
+        if (chain.Count == 0)
+            throw new InvalidDataException(
+                "The DexDrive GME save has an invalid allocation chain.");
+
+        var firstDirectory =
+            directoryOffset +
+            (startingBlock - 1) * 128;
+        var fileName = ReadAscii(card, firstDirectory + 0x0A, 20);
+        if (string.IsNullOrWhiteSpace(fileName))
+            fileName = InferRawFileName(path);
+
+        var data = new byte[chain.Count * Ps1MemoryCardService.BlockSize];
+        for (var index = 0; index < chain.Count; index++)
+        {
+            Buffer.BlockCopy(
+                card,
+                chain[index] * Ps1MemoryCardService.BlockSize,
+                data,
+                index * Ps1MemoryCardService.BlockSize,
+                Ps1MemoryCardService.BlockSize);
+        }
+
+        return new Ps1ExternalSaveData(
+            fileName,
+            "DexDrive GME Individual Save",
+            data,
+            ReadNativeTitle(data));
     }
 
     private static Ps1ExternalSaveData ReadMcs(string path, byte[] bytes)

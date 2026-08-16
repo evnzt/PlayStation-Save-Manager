@@ -26,7 +26,8 @@ public static class FormatCatalog
         "All files|*.*";
 
     public const string Ps1IndividualSaveFilter =
-        "PS1 Individual Saves|*.mcb;*.mcs;*.mcx;*.pda;*.ps1;*.psv;*.psx;*.raw|" +
+        "PS1 Individual Saves|*.gme;*.mcb;*.mcs;*.mcx;*.pda;*.ps1;*.psv;*.psx;*.raw|" +
+        "PS1 Individual Save - GME • Legacy DexDrive (*.gme)|*.gme|" +
         "PS1 Individual Save - MCB • Smart Link (*.mcb)|*.mcb|" +
         "PS1 Individual Save - MCS • PSXGameEdit (*.mcs)|*.mcs|" +
         "PS1 Individual Save - MCX • Datel (*.mcx)|*.mcx|" +
@@ -38,6 +39,7 @@ public static class FormatCatalog
         "All files|*.*";
 
     public const string Ps1SaveExportFilter =
+        "PS1 Individual Save - GME • Legacy DexDrive (*.gme)|*.gme|" +
         "PS1 Individual Save - MCB • Smart Link (*.mcb)|*.mcb|" +
         "PS1 Individual Save - MCS • PSXGameEdit (*.mcs)|*.mcs|" +
         "PS1 Individual Save - MCX • Datel (*.mcx)|*.mcx|" +
@@ -151,6 +153,7 @@ public static class FormatCatalog
         "Memory Card - BIN (PS1 / PS2) (*.bin)|*.bin|" +
         "PS2 Individual Save - CBS • CodeBreaker (*.cbs)|*.cbs|" +
         "PS1 Memory Card - DDF • DataDeck (*.ddf)|*.ddf|" +
+        "PS1 Individual Save - GME • Legacy DexDrive (*.gme)|*.gme|" +
         "PS1 Memory Card - GME • DexDrive (*.gme)|*.gme|" +
         "PS2 Individual Save - MAX • Action Replay MAX (*.max)|*.max|" +
         "PS1 Memory Card - MC • PSXGame Edit (*.mc)|*.mc|" +

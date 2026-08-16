@@ -59,17 +59,26 @@ internal static class Ps2IconRendererV2
         var renderMalformedAnimationDoubleSided =
             HasContradictoryAnimationTimeline(model);
 
+        // Keep geometry-classification heuristics stable for the entire icon.
+        // Re-evaluating them from the current morph pose can make folding
+        // animations suddenly become a "thin card" only at one point in
+        // their cycle (the SmackDown! ladder is a reference case), causing
+        // foreground details to disappear until the model opens again.
+        // Classify from the authored base shape instead; genuinely flat
+        // icons retain the safeguard, while animated objects cannot switch
+        // renderer modes mid-animation.
+        var classificationShape = model.Shapes[0]
+            .Select(value => (double)value)
+            .ToArray();
+
         var thinCardDepthBias =
-            GetThinCardDepthBias(animated);
+            GetThinCardDepthBias(classificationShape);
 
         // Large, flat background panels in some animated icons can carry
-        // unreliable per-vertex normals.  Use the panel's actual geometry
-        // only for back-face culling on those large planar triangles.  This
-        // keeps the front panel stable during rotation and prevents the
-        // mirrored rear copy from peeking through, while leaving ordinary
-        // icon triangles on the established normal-based path.
+        // unreliable per-vertex normals. Keep this decision stable for the
+        // same reason as the thin-card classification above.
         var largePlanarCullArea =
-            GetLargePlanarCullArea(animated);
+            GetLargePlanarCullArea(classificationShape);
 
         var vertices = BuildVertices(
             model,
@@ -87,6 +96,12 @@ internal static class Ps2IconRendererV2
                 width,
                 height);
 
+        var renderThinClosedPanelDoubleSided =
+            thinCardDepthBias > 0.0 &&
+            IsThinClosedPanel(
+                model,
+                classificationShape);
+
         var selected = Rasterize(
             model,
             projected,
@@ -98,7 +113,8 @@ internal static class Ps2IconRendererV2
                 thinCardDepthBias > 0.0,
             thinCardDepthBias: thinCardDepthBias,
             disableThinCardBackfaceCull:
-                renderMalformedAnimationDoubleSided,
+                renderMalformedAnimationDoubleSided ||
+                renderThinClosedPanelDoubleSided,
             largePlanarCullArea: largePlanarCullArea);
 
         ApplyMildGamma(selected);
@@ -227,6 +243,117 @@ internal static class Ps2IconRendererV2
         return Math.Max(
             faceSpan * 0.004,
             0.0005);
+    }
+
+    private static bool IsThinClosedPanel(
+        Ps2IconModel model,
+        double[] positions)
+    {
+        // Detect a shallow CLOSED 3D panel: two substantial opposed broad
+        // faces plus real side-wall geometry. This is deliberately narrower
+        // than the general thin-card test so round/irregular icons are not
+        // rerouted. NFS Most Wanted's plaque-style icon is the reference
+        // geometry, but no game/title/serial is consulted.
+        if (model.Shapes.Length != 1 ||
+            model.VertexCount < 24 ||
+            positions.Length < model.VertexCount * 3)
+        {
+            return false;
+        }
+
+        double minX = double.MaxValue, maxX = double.MinValue;
+        double minY = double.MaxValue, maxY = double.MinValue;
+        double minZ = double.MaxValue, maxZ = double.MinValue;
+
+        for (var offset = 0;
+             offset + 2 < positions.Length;
+             offset += 3)
+        {
+            var x = positions[offset] / 4096.0;
+            var y = positions[offset + 1] / 4096.0;
+            var z = positions[offset + 2] / 4096.0;
+
+            minX = Math.Min(minX, x); maxX = Math.Max(maxX, x);
+            minY = Math.Min(minY, y); maxY = Math.Max(maxY, y);
+            minZ = Math.Min(minZ, z); maxZ = Math.Max(maxZ, z);
+        }
+
+        var spanX = Math.Max(0.0001, maxX - minX);
+        var spanY = Math.Max(0.0001, maxY - minY);
+        var spanZ = Math.Max(0.0, maxZ - minZ);
+        var faceSpan = Math.Max(spanX, spanY);
+
+        // It must be shallow, but still have measurable thickness.
+        if (spanZ <= faceSpan * 0.005 ||
+            spanZ > faceSpan * 0.075)
+        {
+            return false;
+        }
+
+        var positiveBroad = 0;
+        var negativeBroad = 0;
+        var sideWall = 0;
+        var usable = 0;
+
+        for (var triangle = 0;
+             triangle + 2 < model.VertexCount;
+             triangle += 3)
+        {
+            var a = triangle * 3;
+            var b = (triangle + 1) * 3;
+            var c = (triangle + 2) * 3;
+
+            var ax = positions[a] / 4096.0;
+            var ay = positions[a + 1] / 4096.0;
+            var az = positions[a + 2] / 4096.0;
+            var bx = positions[b] / 4096.0;
+            var by = positions[b + 1] / 4096.0;
+            var bz = positions[b + 2] / 4096.0;
+            var cx = positions[c] / 4096.0;
+            var cy = positions[c + 1] / 4096.0;
+            var cz = positions[c + 2] / 4096.0;
+
+            var e1x = bx - ax;
+            var e1y = by - ay;
+            var e1z = bz - az;
+            var e2x = cx - ax;
+            var e2y = cy - ay;
+            var e2z = cz - az;
+
+            var nx = e1y * e2z - e1z * e2y;
+            var ny = e1z * e2x - e1x * e2z;
+            var nz = e1x * e2y - e1y * e2x;
+            var length = Math.Sqrt(nx * nx + ny * ny + nz * nz);
+
+            if (length <= 0.000001)
+                continue;
+
+            nz /= length;
+            usable++;
+
+            if (nz >= 0.80)
+                positiveBroad++;
+            else if (nz <= -0.80)
+                negativeBroad++;
+            else if (Math.Abs(nz) <= 0.35)
+                sideWall++;
+        }
+
+        if (usable < 8)
+            return false;
+
+        // Require meaningful geometry on BOTH broad faces and around the
+        // perimeter. Also require the opposed faces to be reasonably balanced.
+        var minimumBroad = Math.Max(2, usable / 10);
+        var minimumSide = Math.Max(2, usable / 8);
+        var broadRatio =
+            Math.Min(positiveBroad, negativeBroad) /
+            (double)Math.Max(1, Math.Max(positiveBroad, negativeBroad));
+
+        return positiveBroad >= minimumBroad &&
+               negativeBroad >= minimumBroad &&
+               sideWall >= minimumSide &&
+               broadRatio >= 0.45;
     }
 
     private static double GetLargePlanarCullArea(
@@ -399,6 +526,20 @@ internal static class Ps2IconRendererV2
             }
         }
 
+        // Valid native rigid-spin animations (Jackie Chan Adventures is
+        // the reference case) are handled only after v10.32's malformed
+        // timeline safeguards above have had first refusal. This keeps Sled
+        // Storm on its original safe path while allowing genuine authored
+        // rigid rotation to remain seamless.
+        if (model.TryGetNativeRigidYRotationAngles(out var rigidAngles) &&
+            rigidAngles.Count == shapeCount)
+        {
+            return BuildRigidYRotationVertices(
+                model,
+                rigidAngles,
+                elapsedSeconds);
+        }
+
         var frame =
             (elapsedSeconds *
              60.0 *
@@ -446,6 +587,109 @@ internal static class Ps2IconRendererV2
                 a[index] +
                 (b[index] - a[index]) *
                 tween;
+        }
+
+        return output;
+    }
+
+    private static double[] BuildRigidYRotationVertices(
+        Ps2IconModel model,
+        IReadOnlyList<double> angles,
+        double elapsedSeconds)
+    {
+        var shapeCount = model.Shapes.Length;
+        var rawFrame =
+            elapsedSeconds *
+            60.0 *
+            model.AnimationSpeed +
+            model.PlayOffset;
+
+        var framesPerShape =
+            model.FrameLength /
+            (double)shapeCount;
+        if (framesPerShape <= 0.0)
+            framesPerShape = 1.0;
+
+        // Keep rigid-spin animations unwrapped across ICN cycle boundaries.
+        // The previous implementation held the final authored pose for the
+        // last shape interval to avoid a 177° -> 0° reverse morph. That hold
+        // created a visible pause once per revolution. Instead, infer the
+        // normal angular step from the authored poses and use it for the
+        // final interval, then carry that accumulated rotation into the next
+        // cycle. Rotation is periodic, so the mesh remains visually identical
+        // while the motion stays continuous.
+        var deltas = new List<double>();
+        for (var index = 1; index < angles.Count; index++)
+        {
+            var delta = angles[index] - angles[index - 1];
+            if (double.IsFinite(delta) && Math.Abs(delta) > 0.000001)
+                deltas.Add(delta);
+        }
+
+        var inferredStep = deltas.Count > 0
+            ? deltas.OrderBy(value => value).ElementAt(deltas.Count / 2)
+            : 0.0;
+
+        var cycleAdvance =
+            angles[shapeCount - 1] +
+            inferredStep -
+            angles[0];
+
+        var cyclePosition = rawFrame / model.FrameLength;
+        var cycleIndex = Math.Floor(cyclePosition);
+        var frame = rawFrame - cycleIndex * model.FrameLength;
+        if (frame < 0.0)
+        {
+            frame += model.FrameLength;
+            cycleIndex -= 1.0;
+        }
+
+        var shapePosition = frame / framesPerShape;
+        var current = Math.Clamp(
+            (int)Math.Floor(shapePosition),
+            0,
+            shapeCount - 1);
+        var tween = shapePosition - Math.Floor(shapePosition);
+        tween = tween * tween * (3.0 - 2.0 * tween);
+
+        var currentAngle = angles[current];
+        var nextAngle = current >= shapeCount - 1
+            ? angles[0] + cycleAdvance
+            : angles[current + 1];
+
+        var angle =
+            currentAngle +
+            (nextAngle - currentAngle) *
+            tween +
+            cycleIndex * cycleAdvance;
+
+        var source = model.Shapes[0];
+        var output = new double[model.VertexCount * 3];
+
+        double centerX = 0.0, centerY = 0.0, centerZ = 0.0;
+        for (var vertex = 0; vertex < model.VertexCount; vertex++)
+        {
+            var p = vertex * 3;
+            centerX += source[p];
+            centerY += source[p + 1];
+            centerZ += source[p + 2];
+        }
+        centerX /= model.VertexCount;
+        centerY /= model.VertexCount;
+        centerZ /= model.VertexCount;
+
+        var cos = Math.Cos(angle);
+        var sin = Math.Sin(angle);
+        for (var vertex = 0; vertex < model.VertexCount; vertex++)
+        {
+            var p = vertex * 3;
+            var x = source[p] - centerX;
+            var y = source[p + 1] - centerY;
+            var z = source[p + 2] - centerZ;
+
+            output[p] = centerX + x * cos + z * sin;
+            output[p + 1] = centerY + y;
+            output[p + 2] = centerZ - x * sin + z * cos;
         }
 
         return output;

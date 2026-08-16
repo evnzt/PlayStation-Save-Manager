@@ -17,6 +17,12 @@ public sealed class SaveEntry : INotifyPropertyChanged
     public string Subtitle { get; init; } = string.Empty;
     public string ProfileName => string.IsNullOrWhiteSpace(Subtitle) ? "Save data" : Subtitle;
 
+    // Display-only fields used by the PS2 Memory Cards tab. The parsed save
+    // metadata remains untouched so Library, Save Information, transfers,
+    // packages, and PS1 behavior continue to use the original values.
+    public string CardGameTitle { get; set; } = string.Empty;
+    public string CardSaveDescription { get; set; } = string.Empty;
+
     public ImageSource? IconImage
     {
         get => _iconImage;

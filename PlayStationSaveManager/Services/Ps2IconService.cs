@@ -13,6 +13,8 @@ public sealed class Ps2IconService
     private readonly MyMcEngine _engine;
     private readonly string _cacheDirectory;
     private readonly ConcurrentDictionary<string, Ps2IconLoadResult> _models = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, Ps2IconLoadResult> _deleteModels = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, Ps2IconLoadResult> _copyModels = new(StringComparer.OrdinalIgnoreCase);
 
     public Ps2IconService(MyMcEngine engine, string applicationDirectory)
     {
@@ -24,6 +26,96 @@ public sealed class Ps2IconService
     public async Task<Ps2IconModel?> LoadAsync(
         string cardPath, string directoryId, CancellationToken cancellationToken = default) =>
         (await LoadResultAsync(cardPath, directoryId, cancellationToken)).Model;
+
+    public async Task<Ps2IconLoadResult> LoadCopyResultAsync(
+        string cardPath, string directoryId, CancellationToken cancellationToken = default)
+    {
+        var key = BuildKey(cardPath, directoryId);
+        if (_copyModels.TryGetValue(key, out var cached))
+            return cached;
+
+        var itemDirectory = Path.Combine(_cacheDirectory, key);
+        Directory.CreateDirectory(itemDirectory);
+        var iconSysPath = Path.Combine(itemDirectory, "icon.sys");
+
+        try
+        {
+            if (!File.Exists(iconSysPath))
+                await _engine.ExtractFileAsync(cardPath, directoryId, "icon.sys", iconSysPath, cancellationToken);
+
+            var iconSys = await File.ReadAllBytesAsync(iconSysPath, cancellationToken);
+            if (iconSys.Length != 964 || Encoding.ASCII.GetString(iconSys, 0, 4) != "PS2D")
+                return _copyModels[key] = await LoadResultAsync(cardPath, directoryId, cancellationToken);
+
+            var copyIconName = ReadAsciiName(iconSys, 324, 64);
+            if (string.IsNullOrWhiteSpace(copyIconName))
+                return _copyModels[key] = await LoadResultAsync(cardPath, directoryId, cancellationToken);
+
+            var safeName = string.Concat(copyIconName.Select(ch =>
+                Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
+            var iconPath = Path.Combine(itemDirectory, "copy-" + safeName);
+
+            if (!File.Exists(iconPath))
+                await _engine.ExtractFileAsync(cardPath, directoryId, copyIconName, iconPath, cancellationToken);
+
+            var model = Ps2IconModel.Parse(
+                await File.ReadAllBytesAsync(iconPath, cancellationToken));
+            model.RenderSettings = ParseRenderSettings(iconSys);
+
+            return _copyModels[key] = Ps2IconLoadResult.Success(model);
+        }
+        catch
+        {
+            // A missing or malformed copy-specific icon must never block a
+            // transfer. Fall back to the save's normal native icon instead.
+            return _copyModels[key] = await LoadResultAsync(cardPath, directoryId, cancellationToken);
+        }
+    }
+
+    public async Task<Ps2IconLoadResult> LoadDeleteResultAsync(
+        string cardPath, string directoryId, CancellationToken cancellationToken = default)
+    {
+        var key = BuildKey(cardPath, directoryId);
+        if (_deleteModels.TryGetValue(key, out var cached))
+            return cached;
+
+        var itemDirectory = Path.Combine(_cacheDirectory, key);
+        Directory.CreateDirectory(itemDirectory);
+        var iconSysPath = Path.Combine(itemDirectory, "icon.sys");
+
+        try
+        {
+            if (!File.Exists(iconSysPath))
+                await _engine.ExtractFileAsync(cardPath, directoryId, "icon.sys", iconSysPath, cancellationToken);
+
+            var iconSys = await File.ReadAllBytesAsync(iconSysPath, cancellationToken);
+            if (iconSys.Length != 964 || Encoding.ASCII.GetString(iconSys, 0, 4) != "PS2D")
+                return _deleteModels[key] = await LoadResultAsync(cardPath, directoryId, cancellationToken);
+
+            var deleteIconName = ReadAsciiName(iconSys, 388, 64);
+            if (string.IsNullOrWhiteSpace(deleteIconName))
+                return _deleteModels[key] = await LoadResultAsync(cardPath, directoryId, cancellationToken);
+
+            var safeName = string.Concat(deleteIconName.Select(ch =>
+                Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch));
+            var iconPath = Path.Combine(itemDirectory, "delete-" + safeName);
+
+            if (!File.Exists(iconPath))
+                await _engine.ExtractFileAsync(cardPath, directoryId, deleteIconName, iconPath, cancellationToken);
+
+            var model = Ps2IconModel.Parse(
+                await File.ReadAllBytesAsync(iconPath, cancellationToken));
+            model.RenderSettings = ParseRenderSettings(iconSys);
+
+            return _deleteModels[key] = Ps2IconLoadResult.Success(model);
+        }
+        catch
+        {
+            // A missing or malformed delete-specific icon must never block a
+            // deletion. Fall back to the save's normal native icon instead.
+            return _deleteModels[key] = await LoadResultAsync(cardPath, directoryId, cancellationToken);
+        }
+    }
 
     public async Task<Ps2IconLoadResult> LoadResultAsync(
         string cardPath, string directoryId, CancellationToken cancellationToken = default)

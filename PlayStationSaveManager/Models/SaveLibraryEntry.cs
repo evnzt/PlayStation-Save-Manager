@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
 using System.Windows.Media.Imaging;
+using PlayStationSaveManager.Services;
 
 namespace PlayStationSaveManager.Models;
 
@@ -42,6 +44,16 @@ public sealed class SaveLibraryEntry : INotifyPropertyChanged
     }
 
     [JsonIgnore]
+    public IReadOnlyList<BitmapSource> IconFrames { get; set; } =
+        Array.Empty<BitmapSource>();
+
+    [JsonIgnore]
+    public bool Ps1IconFramesLoaded { get; set; }
+
+    [JsonIgnore]
+    public Ps2IconModel? Ps2IconModel { get; set; }
+
+    [JsonIgnore]
     public BitmapSource? IconImage
     {
         get => _iconImage;
@@ -55,6 +67,12 @@ public sealed class SaveLibraryEntry : INotifyPropertyChanged
 
     [JsonIgnore]
     public string FavoriteGlyph => IsFavorite ? "★" : "☆";
+
+    [JsonIgnore]
+    public string LibraryDisplayTitle { get; set; } = string.Empty;
+
+    [JsonIgnore]
+    public string LibraryDisplaySubtitle { get; set; } = string.Empty;
 
     [JsonIgnore]
     public string DisplayTitle =>

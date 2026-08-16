@@ -82,11 +82,38 @@ public sealed class MyMcEngine
                 cardPath,
                 cancellationToken);
 
-        var result = await RunAsync(cardPath, ["dir"], TimeSpan.FromSeconds(30), cancellationToken);
-        EnsureSuccess(result, "Could not read the memory card");
+        var dirResult =
+            await RunAsync(
+                cardPath,
+                ["dir"],
+                TimeSpan.FromSeconds(30),
+                cancellationToken);
 
-        var saves = ParseDirectory(result.Output);
-        var freeBytes = ParseFreeBytes(result.Output);
+        EnsureSuccess(
+            dirResult,
+            "Could not read the memory card");
+
+        var lsResult =
+            await RunAsync(
+                cardPath,
+                ["ls"],
+                TimeSpan.FromSeconds(30),
+                cancellationToken);
+
+        EnsureSuccess(
+            lsResult,
+            "Could not enumerate the memory-card filesystem");
+
+        // myMC++ ls is the authoritative source for which save directories
+        // actually exist on the card. dir remains useful for title/size
+        // metadata, but unusual display formatting can no longer make a real
+        // save disappear from PSM.
+        var saves =
+            MergeDirectoryEnumeration(
+                ParseRootDirectories(lsResult.Output),
+                ParseDirectoryMetadata(dirResult.Output));
+
+        var freeBytes = ParseFreeBytes(dirResult.Output);
         var totalBytes = GetLogicalCardSize(cardPath);
 
         if (freeBytes.HasValue &&
@@ -2335,65 +2362,330 @@ public sealed class MyMcEngine
                 : subtitle.Trim());
     }
 
-    private static IReadOnlyList<SaveEntry> ParseDirectory(string output)
-    {
-        var lines = output.Replace("\r", string.Empty).Split('\n');
-        var saves = new Dictionary<string, SaveEntry>(StringComparer.OrdinalIgnoreCase);
-        var header = new Regex(@"^\s*(?<id>\S+)\s{2,}(?<title>.+?)\s*$", RegexOptions.Compiled);
-        var detail = new Regex(@"^\s*(?<kb>\d+)KB\s+(?<rest>.*)$", RegexOptions.Compiled);
+    private sealed record Ps2DirectoryMetadata(
+        string DirectoryId,
+        string GameTitle,
+        string Subtitle,
+        long SizeBytes);
 
-        for (var index = 0; index < lines.Length; index++)
+    private static IReadOnlyList<string> ParseRootDirectories(
+        string output)
+    {
+        var result =
+            new List<string>();
+
+        var seen =
+            new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase);
+
+        foreach (var rawLine in
+                 output.Replace("\r", string.Empty)
+                     .Split('\n'))
         {
-            var line = lines[index];
-            if (string.IsNullOrWhiteSpace(line) || Regex.IsMatch(line, @"^\s*[\d,]+\s+KB Free\s*$"))
+            var line =
+                rawLine.TrimEnd();
+
+            if (string.IsNullOrWhiteSpace(line))
                 continue;
 
-            var match = header.Match(line);
+            // myMC++ ls format:
+            // permissions  size  timestamp  name
+            // The filename is the final field and may contain spaces.
+            var match =
+                Regex.Match(
+                    line,
+                    @"^\S+\s+\d+\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+(?<name>.+?)\s*$",
+                    RegexOptions.CultureInvariant);
+
             if (!match.Success)
                 continue;
 
-            var id = match.Groups["id"].Value.Trim();
-            var title = match.Groups["title"].Value.Trim();
-            long sizeBytes = 0;
-            var subtitle = string.Empty;
+            var name =
+                match.Groups["name"]
+                    .Value
+                    .Trim();
 
-            if (index + 1 < lines.Length)
+            if (name is "." or ".." ||
+                string.IsNullOrWhiteSpace(name))
             {
-                var detailMatch = detail.Match(lines[index + 1]);
-                if (detailMatch.Success)
-                {
-                    sizeBytes = long.Parse(detailMatch.Groups["kb"].Value) * 1024;
-                    var remainder = detailMatch.Groups["rest"].Value.Trim();
-                    if (remainder.Length > 25)
-                        subtitle = remainder[25..].Trim();
-                    index++;
-                }
+                continue;
             }
 
-            if (!saves.ContainsKey(id))
-            {
-                var identity =
-                    NormalizePs2SaveIdentity(
-                        id,
-                        title,
-                        subtitle);
+            // PS2 memory-card root save entries are directories. myMC++'s
+            // permission display contains 'd' for directories.
+            var permissions =
+                line.Split(
+                    (char[]?)null,
+                    2,
+                    StringSplitOptions.RemoveEmptyEntries)
+                    .FirstOrDefault() ?? string.Empty;
 
-                saves[id] = new SaveEntry
-                {
-                    DirectoryId = id,
-                    GameTitle = identity.GameTitle,
-                    Title =
-                        string.IsNullOrWhiteSpace(identity.Subtitle)
-                            ? identity.GameTitle
-                            : $"{identity.GameTitle} - {identity.Subtitle}",
-                    Subtitle = identity.Subtitle,
-                    SizeBytes = sizeBytes
-                };
+            if (!permissions.Contains(
+                    'd',
+                    StringComparison.Ordinal))
+            {
+                continue;
             }
+
+            if (seen.Add(name))
+                result.Add(name);
         }
 
-        return saves.Values.OrderBy(save => save.Title, StringComparer.CurrentCultureIgnoreCase).ToArray();
+        return result;
     }
+
+    private static IReadOnlyDictionary<string, Ps2DirectoryMetadata>
+        ParseDirectoryMetadata(
+            string output)
+    {
+        var metadata =
+            new Dictionary<string, Ps2DirectoryMetadata>(
+                StringComparer.OrdinalIgnoreCase);
+
+        var lines =
+            output.Replace("\r", string.Empty)
+                .Split('\n');
+
+        var detail =
+            new Regex(
+                @"^\s*(?<kb>[\d,]+)KB\s+(?<rest>.*)$",
+                RegexOptions.Compiled |
+                RegexOptions.CultureInvariant);
+
+        var free =
+            new Regex(
+                @"^\s*[\d,]+\s+KB Free\s*$",
+                RegexOptions.Compiled |
+                RegexOptions.CultureInvariant |
+                RegexOptions.IgnoreCase);
+
+        for (var index = 0; index < lines.Length - 1; index++)
+        {
+            var header =
+                lines[index];
+
+            if (string.IsNullOrWhiteSpace(header) ||
+                free.IsMatch(header))
+            {
+                continue;
+            }
+
+            var detailMatch =
+                detail.Match(
+                    lines[index + 1]);
+
+            if (!detailMatch.Success)
+                continue;
+
+            if (!TryParseMyMcDirHeader(
+                    header,
+                    out var directoryId,
+                    out var headerTitle))
+            {
+                continue;
+            }
+
+            var sizeText =
+                detailMatch.Groups["kb"]
+                    .Value
+                    .Replace(
+                        ",",
+                        string.Empty,
+                        StringComparison.Ordinal);
+
+            long.TryParse(
+                sizeText,
+                out var sizeKb);
+
+            var detailText =
+                detailMatch.Groups["rest"]
+                    .Value;
+
+            var detailTitle =
+                ParseMyMcDetailTitle(
+                    detailText);
+
+            // Some valid myMC++ records intentionally leave the title column
+            // on the header blank (Midnight Club is one real example). In
+            // that case the descriptive title on the detail line is the best
+            // available game title, not a reason to discard the save.
+            var gameTitle =
+                !string.IsNullOrWhiteSpace(headerTitle)
+                    ? headerTitle.Trim()
+                    : !string.IsNullOrWhiteSpace(detailTitle)
+                        ? detailTitle.Trim()
+                        : directoryId;
+
+            var subtitle =
+                !string.IsNullOrWhiteSpace(headerTitle) &&
+                !string.IsNullOrWhiteSpace(detailTitle) &&
+                !detailTitle.Equals(
+                    headerTitle,
+                    StringComparison.CurrentCultureIgnoreCase)
+                    ? detailTitle.Trim()
+                    : string.Empty;
+
+            metadata[directoryId] =
+                new Ps2DirectoryMetadata(
+                    directoryId,
+                    gameTitle,
+                    subtitle,
+                    sizeKb * 1024);
+
+            index++;
+        }
+
+        return metadata;
+    }
+
+    private static bool TryParseMyMcDirHeader(
+        string line,
+        out string directoryId,
+        out string title)
+    {
+        directoryId =
+            string.Empty;
+        title =
+            string.Empty;
+
+        if (string.IsNullOrWhiteSpace(line))
+            return false;
+
+        var value =
+            line.TrimEnd();
+
+        // myMC++ displays the PS2 directory field as a 32-character column.
+        // This preserves internal spaces and also allows the title column to
+        // be completely empty.
+        if (value.Length >= 32)
+        {
+            directoryId =
+                value[..32]
+                    .Trim();
+
+            title =
+                value[32..]
+                    .Trim();
+
+            if (!string.IsNullOrWhiteSpace(directoryId))
+                return true;
+        }
+
+        // Tolerate output variants that trim the fixed-width padding.
+        // A run of 2+ spaces separates the directory field from a title.
+        var matches =
+            Regex.Matches(
+                value,
+                @"\s{2,}",
+                RegexOptions.CultureInvariant);
+
+        if (matches.Count > 0)
+        {
+            var separator =
+                matches[^1];
+
+            directoryId =
+                value[..separator.Index]
+                    .Trim();
+
+            title =
+                value[(separator.Index + separator.Length)..]
+                    .Trim();
+
+            return !string.IsNullOrWhiteSpace(directoryId);
+        }
+
+        // A header may consist solely of a directory name.
+        directoryId =
+            value.Trim();
+
+        return !string.IsNullOrWhiteSpace(directoryId);
+    }
+
+    private static string ParseMyMcDetailTitle(
+        string remainder)
+    {
+        if (string.IsNullOrWhiteSpace(remainder))
+            return string.Empty;
+
+        // myMC++'s protection/status column is 25 display characters in the
+        // output used by PSM's bundled engine.
+        if (remainder.Length > 25)
+        {
+            var title =
+                remainder[25..]
+                    .Trim();
+
+            if (!string.IsNullOrWhiteSpace(title))
+                return title;
+        }
+
+        // Fallback for variants with a shorter status column.
+        var match =
+            Regex.Match(
+                remainder,
+                @"\s{2,}(?<title>\S.*)$",
+                RegexOptions.CultureInvariant);
+
+        return match.Success
+            ? match.Groups["title"].Value.Trim()
+            : string.Empty;
+    }
+
+    private static IReadOnlyList<SaveEntry> MergeDirectoryEnumeration(
+        IReadOnlyList<string> rootDirectories,
+        IReadOnlyDictionary<string, Ps2DirectoryMetadata> metadata)
+    {
+        var saves =
+            new List<SaveEntry>(
+                rootDirectories.Count);
+
+        foreach (var directoryId in rootDirectories)
+        {
+            metadata.TryGetValue(
+                directoryId,
+                out var details);
+
+            var gameTitle =
+                details?.GameTitle ??
+                directoryId;
+
+            var subtitle =
+                details?.Subtitle ??
+                string.Empty;
+
+            var identity =
+                NormalizePs2SaveIdentity(
+                    directoryId,
+                    gameTitle,
+                    subtitle);
+
+            saves.Add(
+                new SaveEntry
+                {
+                    DirectoryId =
+                        directoryId,
+                    GameTitle =
+                        identity.GameTitle,
+                    Title =
+                        string.IsNullOrWhiteSpace(
+                            identity.Subtitle)
+                            ? identity.GameTitle
+                            : $"{identity.GameTitle} - {identity.Subtitle}",
+                    Subtitle =
+                        identity.Subtitle,
+                    SizeBytes =
+                        details?.SizeBytes ?? 0
+                });
+        }
+
+        return saves
+            .OrderBy(
+                save => save.Title,
+                StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
+    }
+
 
     private static void EnsureSuccess(EngineResult result, string message)
     {
